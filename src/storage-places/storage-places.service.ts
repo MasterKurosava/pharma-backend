@@ -65,4 +65,9 @@ export class StoragePlacesService {
       },
     });
   }
+
+  async delete(id: number) {
+    await this.findById(id);
+    return this.prisma.storagePlace.delete({ where: { id } });
+  }
 }

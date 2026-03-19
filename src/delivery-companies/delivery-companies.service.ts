@@ -63,4 +63,9 @@ export class DeliveryCompaniesService {
       },
     });
   }
+
+  async delete(id: number) {
+    await this.findById(id);
+    return this.prisma.deliveryCompany.delete({ where: { id } });
+  }
 }

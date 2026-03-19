@@ -94,4 +94,14 @@ export class CitiesService {
       this.prismaErrorMapper.rethrow(error);
     }
   }
+
+  async delete(id: number) {
+    await this.findById(id);
+
+    try {
+      return this.prisma.city.delete({ where: { id } });
+    } catch (error) {
+      this.prismaErrorMapper.rethrow(error);
+    }
+  }
 }

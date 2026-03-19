@@ -50,4 +50,22 @@ export class ProductQueryDto {
   })
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined) return value;
+    return Number(value);
+  })
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined) return value;
+    return Number(value);
+  })
+  @IsInt()
+  @Min(1)
+  pageSize?: number;
 }

@@ -62,4 +62,9 @@ export class AssemblyStatusesService {
       },
     });
   }
+
+  async delete(id: number) {
+    await this.findById(id);
+    return this.prisma.assemblyStatus.delete({ where: { id } });
+  }
 }

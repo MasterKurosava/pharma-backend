@@ -46,9 +46,29 @@ export class ProductsService {
         orderSource: true,
       },
       orderBy: [{ name: 'asc' }],
+      ...(query.page !== undefined || query.pageSize !== undefined
+        ? {
+            skip: ((query.page ?? 1) - 1) * (query.pageSize ?? 20),
+            take: query.pageSize ?? 20,
+          }
+        : {}),
     });
 
-    return products.map((product) => this.mapProduct(product));
+    const mapped = products.map((product) => this.mapProduct(product));
+    if (query.page !== undefined || query.pageSize !== undefined) {
+      const total = await this.prisma.product.count({ where });
+      const page = query.page ?? 1;
+      const pageSize = query.pageSize ?? 20;
+      return {
+        items: mapped,
+        total,
+        page,
+        pageSize,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      };
+    }
+
+    return mapped;
   }
 
   async findById(id: number) {
@@ -162,6 +182,26 @@ export class ProductsService {
       ...product,
       availableQuantity: product.stockQuantity - product.reservedQuantity,
     };
+  }
+
+  async delete(id: number) {
+    await this.findById(id);
+
+    try {
+      const deleted = await this.prisma.product.delete({
+        where: { id },
+        include: {
+          manufacturer: true,
+          activeSubstance: true,
+          status: true,
+          orderSource: true,
+        },
+      });
+
+      return this.mapProduct(deleted);
+    } catch (error) {
+      this.prismaErrorMapper.rethrow(error);
+    }
   }
 
 }

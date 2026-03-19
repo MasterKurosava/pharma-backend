@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
@@ -57,5 +58,13 @@ export class OrdersController {
     @CurrentUser() user: { userId: number; email: string; role: string },
   ) {
     return this.ordersService.update(id, dto, user.userId);
+  }
+
+  @Delete(':id')
+  delete(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser() user: { userId: number; email: string; role: string },
+  ) {
+    return this.ordersService.delete(id, user.userId);
   }
 }

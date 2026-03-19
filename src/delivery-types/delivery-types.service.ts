@@ -83,4 +83,9 @@ export class DeliveryTypesService {
       },
     });
   }
+
+  async delete(id: number) {
+    await this.findById(id);
+    return this.prisma.deliveryType.delete({ where: { id } });
+  }
 }

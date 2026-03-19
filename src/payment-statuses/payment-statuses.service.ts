@@ -62,4 +62,9 @@ export class PaymentStatusesService {
       },
     });
   }
+
+  async delete(id: number) {
+    await this.findById(id);
+    return this.prisma.paymentStatus.delete({ where: { id } });
+  }
 }

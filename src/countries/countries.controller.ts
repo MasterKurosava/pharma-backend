@@ -1,6 +1,7 @@
 import {
     Body,
     Controller,
+    Delete,
     Get,
     Param,
     ParseIntPipe,
@@ -41,5 +42,10 @@ import {
       @Body() dto: UpdateCountryDto,
     ) {
       return this.countriesService.update(id, dto);
+    }
+
+    @Delete(':id')
+    delete(@Param('id', ParseIntPipe) id: number) {
+      return this.countriesService.delete(id);
     }
   }

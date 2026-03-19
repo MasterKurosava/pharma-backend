@@ -63,4 +63,9 @@ import {
         },
       });
     }
+
+    async delete(id: number) {
+      await this.findById(id);
+      return this.prisma.country.delete({ where: { id } });
+    }
   }

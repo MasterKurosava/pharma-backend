@@ -25,10 +25,31 @@ export class ActiveSubstancesService {
         : {}),
     };
 
-    return this.prisma.activeSubstance.findMany({
+    const items = await this.prisma.activeSubstance.findMany({
       where,
       orderBy: [{ name: 'asc' }],
+      ...(query.page !== undefined || query.pageSize !== undefined
+        ? {
+            skip: ((query.page ?? 1) - 1) * (query.pageSize ?? 20),
+            take: query.pageSize ?? 20,
+          }
+        : {}),
     });
+
+    if (query.page !== undefined || query.pageSize !== undefined) {
+      const total = await this.prisma.activeSubstance.count({ where });
+      const page = query.page ?? 1;
+      const pageSize = query.pageSize ?? 20;
+      return {
+        items,
+        total,
+        page,
+        pageSize,
+        totalPages: Math.max(1, Math.ceil(total / pageSize)),
+      };
+    }
+
+    return items;
   }
 
   async findById(id: number) {
@@ -62,5 +83,10 @@ export class ActiveSubstancesService {
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
       },
     });
+  }
+
+  async delete(id: number) {
+    await this.findById(id);
+    return this.prisma.activeSubstance.delete({ where: { id } });
   }
 }

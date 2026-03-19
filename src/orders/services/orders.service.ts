@@ -398,6 +398,35 @@ export class OrdersService {
     }, { timeout: 15000 }).catch((error) => this.prismaErrorMapper.rethrow(error));
   }
 
+  async delete(id: number, currentUserId: number) {
+    await this.loadOrderFullOrThrow(this.prisma, id);
+
+    return this.prisma
+      .$transaction(async (tx) => {
+        const order = await this.loadOrderFullOrThrow(tx, id);
+
+        // Undo reserved quantities for current order items.
+        for (const item of order.items) {
+          await this.orderInventoryService.release(tx, {
+            productId: item.productId,
+            quantity: item.quantity,
+            orderId: id,
+            currentUserId,
+          });
+        }
+
+        // Clean up relations explicitly (no cascade in Prisma schema).
+        await tx.orderEvent.deleteMany({ where: { orderId: id } });
+        await tx.orderItem.deleteMany({ where: { orderId: id } });
+        await tx.productStockMovement.deleteMany({ where: { orderId: id } });
+
+        await tx.order.delete({ where: { id } });
+
+        return id;
+      }, { timeout: 15000 })
+      .catch((error) => this.prismaErrorMapper.rethrow(error));
+  }
+
   private buildOrderChangeEvents(
     existing: Prisma.OrderGetPayload<{
       include: {

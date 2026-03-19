@@ -62,4 +62,9 @@ export class OrderStatusesService {
       },
     });
   }
+
+  async delete(id: number) {
+    await this.findById(id);
+    return this.prisma.orderStatus.delete({ where: { id } });
+  }
 }

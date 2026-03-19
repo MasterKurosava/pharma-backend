@@ -62,4 +62,9 @@ export class ProductStatusesService {
       },
     });
   }
+
+  async delete(id: number) {
+    await this.findById(id);
+    return this.prisma.productStatus.delete({ where: { id } });
+  }
 }

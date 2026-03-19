@@ -62,4 +62,9 @@ export class ProductOrderSourcesService {
       },
     });
   }
+
+  async delete(id: number) {
+    await this.findById(id);
+    return this.prisma.productOrderSource.delete({ where: { id } });
+  }
 }

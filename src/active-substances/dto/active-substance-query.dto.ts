@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 export class ActiveSubstanceQueryDto {
   @IsOptional()
@@ -14,5 +14,23 @@ export class ActiveSubstanceQueryDto {
   })
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined) return value;
+    return Number(value);
+  })
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined) return value;
+    return Number(value);
+  })
+  @IsInt()
+  @Min(1)
+  pageSize?: number;
 
 }

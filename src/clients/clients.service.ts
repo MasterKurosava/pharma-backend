@@ -136,4 +136,14 @@ export class ClientsService {
       this.prismaErrorMapper.rethrow(error);
     }
   }
+
+  async delete(id: number) {
+    await this.findById(id);
+
+    try {
+      return this.prisma.client.delete({ where: { id } });
+    } catch (error) {
+      this.prismaErrorMapper.rethrow(error);
+    }
+  }
 }
