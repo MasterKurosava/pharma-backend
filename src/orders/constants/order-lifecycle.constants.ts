@@ -1,0 +1,12 @@
+export const ORDER_STATUS_CODES = {
+  NEW: 'NEW',
+  IN_PROGRESS: 'IN_PROGRESS',
+  CANCELLED: 'CANCELLED',
+  CLOSED: 'CLOSED',
+} as const;
+
+export const PAYMENT_STATUS_CODES = {
+  UNPAID: 'UNPAID',
+  PARTIALLY_PAID: 'PARTIALLY_PAID',
+  PAID: 'PAID',
+} as const;

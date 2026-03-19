@@ -1,0 +1,378 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Role {
+  id        Int      @id @default(autoincrement())
+  name      String
+  code      String   @unique
+  isSystem  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users User[]
+}
+
+model User {
+  id           Int       @id @default(autoincrement())
+  email        String    @unique
+  passwordHash String
+  name         String?
+  roleId       Int
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  role Role @relation(fields: [roleId], references: [id])
+
+  responsibleOrders Order[] @relation("OrderResponsibleUser")
+  orderEvents       OrderEvent[] @relation("OrderEventCreatedByUser")
+  productStockMovements ProductStockMovement[] @relation("ProductStockMovementCreatedByUser")
+
+  @@index([roleId])
+}
+
+model Country {
+  id        Int      @id @default(autoincrement())
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cities         City[]
+  manufacturers  Manufacturer[]
+  orders         Order[]
+}
+
+model City {
+  id        Int      @id @default(autoincrement())
+  countryId Int
+  name      String
+  region    String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  country Country @relation(fields: [countryId], references: [id])
+
+  cityDeliveryOptions CityDeliveryOption[]
+  orders              Order[]
+
+  @@index([countryId])
+}
+
+model ClientStatus {
+  id        Int      @id @default(autoincrement())
+  name      String
+  color     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clients Client[]
+}
+
+model Client {
+  id             Int      @id @default(autoincrement())
+  name           String
+  phone          String   @unique
+  clientStatusId Int?
+  note           String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  status ClientStatus? @relation(fields: [clientStatusId], references: [id])
+
+  orders Order[]
+
+  @@index([clientStatusId])
+}
+
+model Manufacturer {
+  id        Int      @id @default(autoincrement())
+  name      String
+  countryId Int?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  country Country? @relation(fields: [countryId], references: [id])
+
+  products Product[]
+
+  @@index([countryId])
+}
+
+model ActiveSubstance {
+  id        Int      @id @default(autoincrement())
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products Product[]
+}
+
+model ProductStatus {
+  id        Int      @id @default(autoincrement())
+  name      String
+  color     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products Product[]
+}
+
+model ProductOrderSource {
+  id        Int      @id @default(autoincrement())
+  name      String
+  color     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products Product[]
+}
+
+model Product {
+  id                   Int      @id @default(autoincrement())
+  name                 String
+  description          String?
+  imageUrl             String?
+  manufacturerId       Int
+  activeSubstanceId    Int
+  productStatusId      Int
+  productOrderSourceId Int?
+  stockQuantity        Int      @default(0)
+  reservedQuantity     Int      @default(0)
+  price                Decimal  @db.Decimal(10, 2)
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  manufacturer Manufacturer      @relation(fields: [manufacturerId], references: [id])
+  activeSubstance ActiveSubstance @relation(fields: [activeSubstanceId], references: [id])
+  status ProductStatus           @relation(fields: [productStatusId], references: [id])
+  orderSource ProductOrderSource? @relation(fields: [productOrderSourceId], references: [id])
+
+  items OrderItem[]
+  stockMovements ProductStockMovement[]
+
+  @@index([manufacturerId])
+  @@index([activeSubstanceId])
+  @@index([productStatusId])
+  @@index([productOrderSourceId])
+}
+
+model ProductStockMovement {
+  id              Int      @id @default(autoincrement())
+  productId       Int
+  orderId         Int?
+  createdByUserId Int?
+  type            String
+  quantityDelta   Int
+  beforeQuantity  Int
+  afterQuantity   Int
+  createdAt       DateTime @default(now())
+
+  product       Product @relation(fields: [productId], references: [id])
+  order         Order?  @relation(fields: [orderId], references: [id])
+  createdByUser User?   @relation("ProductStockMovementCreatedByUser", fields: [createdByUserId], references: [id])
+
+  @@index([productId])
+  @@index([orderId])
+  @@index([createdByUserId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model DeliveryCompany {
+  id        Int      @id @default(autoincrement())
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deliveryTypes       DeliveryType[]
+  cityDeliveryOptions CityDeliveryOption[]
+  orders              Order[]
+}
+
+model DeliveryType {
+  id                Int      @id @default(autoincrement())
+  deliveryCompanyId Int
+  name              String
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  company DeliveryCompany @relation(fields: [deliveryCompanyId], references: [id])
+
+  cityDeliveryOptions CityDeliveryOption[]
+  orders              Order[]
+
+  @@index([deliveryCompanyId])
+}
+
+model CityDeliveryOption {
+  id                Int      @id @default(autoincrement())
+  cityId            Int
+  deliveryCompanyId Int
+  deliveryTypeId    Int
+  isDefault         Boolean  @default(false)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  city    City            @relation(fields: [cityId], references: [id])
+  company DeliveryCompany @relation(fields: [deliveryCompanyId], references: [id])
+  type    DeliveryType    @relation(fields: [deliveryTypeId], references: [id])
+
+  @@index([cityId])
+  @@index([deliveryCompanyId])
+  @@index([deliveryTypeId])
+  @@unique([cityId, deliveryCompanyId, deliveryTypeId])
+}
+
+model PaymentStatus {
+  id        Int      @id @default(autoincrement())
+  code      String?  @unique
+  name      String
+  color     String?
+  isSystem  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders Order[]
+}
+
+model AssemblyStatus {
+  id        Int      @id @default(autoincrement())
+  name      String
+  color     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders Order[]
+}
+
+model OrderStatus {
+  id        Int      @id @default(autoincrement())
+  code      String?  @unique
+  name      String
+  color     String?
+  isSystem  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders Order[]
+}
+
+model StoragePlace {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orders Order[]
+}
+
+model Order {
+  id                  Int      @id @default(autoincrement())
+  responsibleUserId   Int?
+  orderDate           DateTime @default(now())
+  clientId            Int
+  countryId           Int
+  cityId              Int
+  address             String
+  deliveryCompanyId   Int?
+  deliveryTypeId      Int?
+  deliveryPrice       Decimal  @default(0) @db.Decimal(10, 2)
+  itemsTotalPrice     Decimal  @default(0) @db.Decimal(10, 2)
+  totalPrice          Decimal  @default(0) @db.Decimal(10, 2)
+  paidAmount          Decimal  @default(0) @db.Decimal(10, 2)
+  remainingAmount     Decimal  @default(0) @db.Decimal(10, 2)
+  paymentStatusId     Int
+  orderStatusId       Int
+  assemblyStatusId    Int?
+  storagePlaceId      Int?
+  description         String?
+  clientNameSnapshot  String
+  clientPhoneSnapshot String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  responsibleUser User?            @relation("OrderResponsibleUser", fields: [responsibleUserId], references: [id])
+  client          Client           @relation(fields: [clientId], references: [id])
+  country         Country          @relation(fields: [countryId], references: [id])
+  city            City             @relation(fields: [cityId], references: [id])
+  deliveryCompany DeliveryCompany? @relation(fields: [deliveryCompanyId], references: [id])
+  deliveryType    DeliveryType?    @relation(fields: [deliveryTypeId], references: [id])
+  paymentStatus   PaymentStatus    @relation(fields: [paymentStatusId], references: [id])
+  orderStatus     OrderStatus      @relation(fields: [orderStatusId], references: [id])
+  assemblyStatus  AssemblyStatus?  @relation(fields: [assemblyStatusId], references: [id])
+  storagePlace    StoragePlace?    @relation(fields: [storagePlaceId], references: [id])
+
+  items OrderItem[]
+  events OrderEvent[]
+  stockMovements ProductStockMovement[]
+
+  @@index([responsibleUserId])
+  @@index([clientId])
+  @@index([countryId])
+  @@index([cityId])
+  @@index([deliveryCompanyId])
+  @@index([deliveryTypeId])
+  @@index([paymentStatusId])
+  @@index([orderStatusId])
+  @@index([assemblyStatusId])
+  @@index([storagePlaceId])
+}
+
+model OrderEvent {
+  id              Int      @id @default(autoincrement())
+  orderId         Int
+  createdByUserId Int?
+  eventType       String
+  fieldName       String?
+  oldValueJson    Json?
+  newValueJson    Json?
+  message         String?
+  payloadJson     Json?
+  createdAt       DateTime @default(now())
+
+  order         Order @relation(fields: [orderId], references: [id])
+  createdByUser User? @relation("OrderEventCreatedByUser", fields: [createdByUserId], references: [id])
+
+  @@index([orderId])
+  @@index([createdByUserId])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id                         Int      @id @default(autoincrement())
+  orderId                    Int
+  productId                  Int
+  productNameSnapshot        String
+  productStatusNameSnapshot  String
+  orderSourceNameSnapshot    String?
+  manufacturerNameSnapshot   String
+  activeSubstanceNameSnapshot String
+  quantity                   Int
+  pricePerItem               Decimal  @db.Decimal(10, 2)
+  lineTotal                  Decimal  @db.Decimal(10, 2)
+  createdAt                  DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  order   Order   @relation(fields: [orderId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+}
