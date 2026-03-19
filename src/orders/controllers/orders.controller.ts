@@ -13,7 +13,7 @@ import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import { OrdersService } from '../services/orders.service';
 import { CreateOrderDto } from '../dto/create-order.dto';
-import { UpdateOrderDto } from '../dto/update-order.dto';
+import { UpdateOrderFullDto } from '../dto/update-order-full.dto';
 import { OrderQueryDto } from '../dto/order-query.dto';
 import { OrdersSummaryQueryDto } from '../dto/orders-summary-query.dto';
 
@@ -53,7 +53,7 @@ export class OrdersController {
   @Patch(':id')
   update(
     @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpdateOrderDto,
+    @Body() dto: UpdateOrderFullDto,
     @CurrentUser() user: { userId: number; email: string; role: string },
   ) {
     return this.ordersService.update(id, dto, user.userId);

@@ -342,7 +342,7 @@ async function runProductsSuite(ctx: TestContext) {
 }
 
 async function runOrdersSuite(ctx: TestContext) {
-  console.log('\n--- orders + items + actions ---');
+  console.log('\n--- orders unified save ---');
   const s = randomSuffix();
 
   const createOrderRes = await apiRequest<{ id?: number }>('POST', `${ctx.baseUrl}/orders`, ctx.token, {
@@ -396,9 +396,15 @@ async function runOrdersSuite(ctx: TestContext) {
       paidAmount: 10,
       deliveryPrice: 8,
       description: `Order upd ${s}`,
+      items: [
+        {
+          productId: ctx.ids.productId,
+          quantity: 3,
+        },
+      ],
     }),
     200,
-    'orders: patch',
+    'orders: unified patch (fields + items)',
   );
   requireStatus(
     await apiRequest('PATCH', `${ctx.baseUrl}/orders/${createdOrderId}`, ctx.token, {
@@ -408,140 +414,29 @@ async function runOrdersSuite(ctx: TestContext) {
     'orders: patch invalid paidAmount > total',
   );
 
-  const addItemRes = await apiRequest<{ items?: Array<{ id: number }> }>(
-    'POST',
-    `${ctx.baseUrl}/orders/${createdOrderId}/items`,
-    ctx.token,
-    { productId: ctx.ids.productId, quantity: 1 },
-  );
-  requireStatus(addItemRes, 201, 'order-items: add');
-
   requireStatus(
-    await apiRequest(
-      'PATCH',
-      `${ctx.baseUrl}/orders/${createdOrderId}/items/${((addItemRes.data as any)?.items ?? [])[0]?.id ?? 1}`,
-      ctx.token,
-      { quantity: 2 },
-    ),
-    200,
-    'order-items: change quantity',
-  );
-
-  requireStatus(
-    await apiRequest(
-      'POST',
-      `${ctx.baseUrl}/orders/${createdOrderId}/actions/change-order-status`,
-      ctx.token,
-      { orderStatusId: ctx.ids.orderStatusInProgressId },
-    ),
-    201,
-    'order-actions: change order status',
-  );
-  requireStatus(
-    await apiRequest(
-      'POST',
-      `${ctx.baseUrl}/orders/${createdOrderId}/actions/change-payment-status`,
-      ctx.token,
-      { paymentStatusId: ctx.ids.paymentStatusPartiallyPaidId },
-    ),
-    201,
-    'order-actions: change payment status',
-  );
-  requireStatus(
-    await apiRequest(
-      'POST',
-      `${ctx.baseUrl}/orders/${createdOrderId}/actions/change-assembly-status`,
-      ctx.token,
-      { assemblyStatusId: ctx.ids.assemblyStatusId },
-    ),
-    201,
-    'order-actions: change assembly status',
-  );
-  requireStatus(
-    await apiRequest(
-      'POST',
-      `${ctx.baseUrl}/orders/${createdOrderId}/actions/assign-responsible`,
-      ctx.token,
-      { responsibleUserId: ctx.ids.currentUserId },
-    ),
-    201,
-    'order-actions: assign responsible',
-  );
-  requireStatus(
-    await apiRequest(
-      'POST',
-      `${ctx.baseUrl}/orders/${createdOrderId}/actions/change-storage-place`,
-      ctx.token,
-      { storagePlaceId: ctx.ids.storagePlaceId },
-    ),
-    201,
-    'order-actions: change storage place',
-  );
-  requireStatus(
-    await apiRequest(
-      'POST',
-      `${ctx.baseUrl}/orders/${createdOrderId}/actions/update-payment`,
-      ctx.token,
-      {
-        paidAmount: 12,
-        paymentStatusId: ctx.ids.paymentStatusPartiallyPaidId,
-      },
-    ),
-    201,
-    'order-actions: update payment',
-  );
-
-  requireStatus(
-    await apiRequest('POST', `${ctx.baseUrl}/orders/${createdOrderId}/actions/close`, ctx.token),
-    201,
-    'order-actions: close',
-  );
-  requireStatus(
-    await apiRequest('POST', `${ctx.baseUrl}/orders/${createdOrderId}/actions/cancel`, ctx.token),
-    400,
-    'order-actions: cancel closed order forbidden',
-  );
-  requireStatus(
-    await apiRequest('POST', `${ctx.baseUrl}/orders/${createdOrderId}/items`, ctx.token, {
-      productId: ctx.ids.productId,
-      quantity: 1,
+    await apiRequest('PATCH', `${ctx.baseUrl}/orders/${createdOrderId}`, ctx.token, {
+      orderStatusId: ctx.ids.orderStatusInProgressId,
+      paymentStatusId: ctx.ids.paymentStatusPartiallyPaidId,
+      assemblyStatusId: ctx.ids.assemblyStatusId,
+      responsibleUserId: ctx.ids.currentUserId,
+      storagePlaceId: ctx.ids.storagePlaceId,
+      paidAmount: 12,
+      items: [
+        {
+          productId: ctx.ids.productId,
+          quantity: 2,
+        },
+      ],
     }),
-    400,
-    'order-items: add after close forbidden',
-  );
-
-  const cancelOrderId = await createEntity(
-    ctx,
-    'orders',
-    {
-      clientId: ctx.ids.clientId,
-      countryId: ctx.ids.countryId,
-      cityId: ctx.ids.cityId,
-      address: `Address cancel ${s}`,
-      deliveryPrice: 4,
-      paymentStatusId: ctx.ids.paymentStatusUnpaidId,
-      orderStatusId: ctx.ids.orderStatusNewId,
-      items: [{ productId: ctx.ids.productId, quantity: 1 }],
-    },
-    'orders: create for cancel',
-  );
-  ctx.orderIds.push(cancelOrderId);
-
-  requireStatus(
-    await apiRequest('POST', `${ctx.baseUrl}/orders/${cancelOrderId}/actions/cancel`, ctx.token),
-    201,
-    'order-actions: cancel',
-  );
-  requireStatus(
-    await apiRequest('POST', `${ctx.baseUrl}/orders/${cancelOrderId}/actions/cancel`, ctx.token),
-    400,
-    'order-actions: cancel twice forbidden',
-  );
-
-  requireStatus(
-    await apiRequest('GET', `${ctx.baseUrl}/orders/${cancelOrderId}/history`, ctx.token),
     200,
-    'orders: history after actions',
+    'orders: unified patch for statuses/payment/responsible/storage/items',
+  );
+
+  requireStatus(
+    await apiRequest('GET', `${ctx.baseUrl}/orders/${createdOrderId}/history`, ctx.token),
+    200,
+    'orders: history after unified saves',
   );
 }
 

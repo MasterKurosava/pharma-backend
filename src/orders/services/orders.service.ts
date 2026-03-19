@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateOrderDto } from '../dto/create-order.dto';
-import { UpdateOrderDto } from '../dto/update-order.dto';
+import { UpdateOrderFullDto } from '../dto/update-order-full.dto';
 import { OrderQueryDto } from '../dto/order-query.dto';
 import { ORDER_EVENT_TYPES } from '../constants/order-event-types';
 import { ORDER_HISTORY_FIELDS } from '../constants/order-history.config';
@@ -14,6 +14,7 @@ import { PrismaErrorMapperService } from '../../common/prisma/prisma-error-mappe
 import { ORDER_STATUS_CODES } from '../constants/order-lifecycle.constants';
 import { ORDER_FULL_INCLUDE } from '../order.constants';
 import { OrdersSummaryQueryDto } from '../dto/orders-summary-query.dto';
+import { SaveOrderItemDto } from '../dto/items/save-order-item.dto';
 
 @Injectable()
 export class OrdersService {
@@ -340,41 +341,27 @@ export class OrdersService {
     return this.loadOrderFullOrThrow(this.prisma, createdOrderId);
   }
 
-  async update(id: number, dto: UpdateOrderDto, currentUserId: number) {
-    const existing = await this.prisma.order.findUnique({
-      where: { id },
-      include: {
-        deliveryCompany: true,
-        deliveryType: true,
-        paymentStatus: true,
-        orderStatus: true,
-        assemblyStatus: true,
-        storagePlace: true,
-        responsibleUser: true,
-      },
-    });
-
-    if (!existing) {
-      throw new NotFoundException('Заказ не найден');
-    }
+  async update(id: number, dto: UpdateOrderFullDto, currentUserId: number) {
+    const existing = await this.loadOrderFullOrThrow(this.prisma, id);
     this.assertCanEditOrder(existing.orderStatus?.code ?? null, existing.orderStatus?.name ?? null);
 
-    // Состав заказа (items) обновляется отдельным этапом и здесь не меняется.
     await this.precheck.loadUpdateContext(dto, existing, this.prisma);
     if (dto.address !== undefined && !dto.address.trim()) {
       throw new BadRequestException('Адрес обязателен');
     }
 
-    const deliveryPrice = dto.deliveryPrice ?? existing.deliveryPrice;
-    const paidAmount = dto.paidAmount ?? existing.paidAmount;
-
-    const totals = this.recalculateFromExistingItemsTotal(
-      existing.itemsTotalPrice.toString(),
-      deliveryPrice,
-      paidAmount,
-    );
-
     return this.prisma.$transaction(async (tx) => {
+      const currentOrder = await this.loadOrderFullOrThrow(tx, id);
+      let itemsForTotals = currentOrder.items.map((item) => ({ lineTotal: item.lineTotal.toString() }));
+
+      if (dto.items !== undefined) {
+        itemsForTotals = await this.replaceOrderItems(tx, currentOrder, dto.items, currentUserId);
+      }
+
+      const deliveryPrice = dto.deliveryPrice ?? currentOrder.deliveryPrice;
+      const paidAmount = dto.paidAmount ?? currentOrder.paidAmount;
+      const totals = this.calculateOrderTotals(itemsForTotals, deliveryPrice, paidAmount);
+
       await tx.order.update({
         where: { id },
         data: {
@@ -391,17 +378,24 @@ export class OrdersService {
             ? { description: dto.description === null ? null : dto.description.trim() }
             : {}),
           ...(dto.paidAmount !== undefined ? { paidAmount: totals.paidAmount } : {}),
+          itemsTotalPrice: totals.itemsTotalPrice,
           totalPrice: totals.totalPrice,
           remainingAmount: totals.remainingAmount,
         },
       });
 
       const updated = await this.loadOrderFullOrThrow(tx, id);
-      const changeEvents = this.buildOrderChangeEvents(existing, updated, currentUserId);
+      const changeEvents = this.buildOrderChangeEvents(currentOrder, updated, currentUserId);
       await this.orderHistoryService.logOrderFieldChanges(tx, changeEvents);
 
+      if (dto.items !== undefined) {
+        await this.orderHistoryService.logOrderAction(tx, id, currentUserId, 'Сохранён полный состав заказа', {
+          itemCount: updated.items.length,
+        });
+      }
+
       return updated;
-    }).catch((error) => this.prismaErrorMapper.rethrow(error));
+    }, { timeout: 15000 }).catch((error) => this.prismaErrorMapper.rethrow(error));
   }
 
   private buildOrderChangeEvents(
@@ -487,6 +481,110 @@ export class OrdersService {
       deliveryPriceInput,
       paidAmountInput,
     );
+  }
+
+  private async replaceOrderItems(
+    tx: Prisma.TransactionClient,
+    order: Prisma.OrderGetPayload<{ include: typeof ORDER_FULL_INCLUDE }>,
+    items: SaveOrderItemDto[],
+    currentUserId: number,
+  ) {
+    if (!items.length) {
+      throw new BadRequestException('Заказ должен содержать хотя бы одну позицию');
+    }
+
+    const existingById = new Map(order.items.map((item) => [item.id, item]));
+    const usedIds = new Set<number>();
+
+    for (const item of items) {
+      if (item.id !== undefined) {
+        if (usedIds.has(item.id)) {
+          throw new BadRequestException('Дубликат id позиции в payload');
+        }
+        usedIds.add(item.id);
+        if (!existingById.has(item.id)) {
+          throw new NotFoundException(`Позиция заказа с id=${item.id} не найдена`);
+        }
+      }
+    }
+
+    const productIds = [...new Set(items.map((item) => item.productId))];
+    const products = await tx.product.findMany({
+      where: { id: { in: productIds } },
+      include: {
+        manufacturer: true,
+        activeSubstance: true,
+        status: true,
+        orderSource: true,
+      },
+    });
+    if (products.length !== productIds.length) {
+      throw new NotFoundException('Один или несколько товаров не найдены');
+    }
+    const productById = new Map(products.map((p) => [p.id, p]));
+
+    const currentPerProduct = new Map<number, number>();
+    for (const item of order.items) {
+      currentPerProduct.set(item.productId, (currentPerProduct.get(item.productId) ?? 0) + item.quantity);
+    }
+
+    const desiredPerProduct = new Map<number, number>();
+    for (const item of items) {
+      desiredPerProduct.set(item.productId, (desiredPerProduct.get(item.productId) ?? 0) + item.quantity);
+    }
+
+    const allProductIds = new Set<number>([...currentPerProduct.keys(), ...desiredPerProduct.keys()]);
+    for (const productId of allProductIds) {
+      const currentQty = currentPerProduct.get(productId) ?? 0;
+      const desiredQty = desiredPerProduct.get(productId) ?? 0;
+      const delta = desiredQty - currentQty;
+
+      if (delta > 0) {
+        const product = productById.get(productId);
+        if (!product) {
+          throw new NotFoundException('Товар не найден');
+        }
+        await this.orderInventoryService.reserve(tx, {
+          product,
+          quantity: delta,
+          orderId: order.id,
+          currentUserId,
+        });
+      } else if (delta < 0) {
+        await this.orderInventoryService.release(tx, {
+          productId,
+          quantity: Math.abs(delta),
+          orderId: order.id,
+          currentUserId,
+        });
+      }
+    }
+
+    await tx.orderItem.deleteMany({ where: { orderId: order.id } });
+
+    const createData = items.map((item) => {
+      const product = productById.get(item.productId);
+      if (!product) {
+        throw new NotFoundException('Товар не найден');
+      }
+      const pricePerItem = this.toMoney(product.price);
+      const lineTotal = this.toMoney(pricePerItem.mul(item.quantity));
+      return {
+        orderId: order.id,
+        productId: item.productId,
+        quantity: item.quantity,
+        pricePerItem: pricePerItem.toFixed(2),
+        lineTotal: lineTotal.toFixed(2),
+        productNameSnapshot: product.name,
+        productStatusNameSnapshot: product.status.name,
+        orderSourceNameSnapshot: product.orderSource?.name ?? null,
+        manufacturerNameSnapshot: product.manufacturer.name,
+        activeSubstanceNameSnapshot: product.activeSubstance.name,
+      };
+    });
+    await tx.orderItem.createMany({ data: createData });
+
+    return createData.map((item) => ({ lineTotal: item.lineTotal }));
   }
 
   private toMoney(value: Prisma.Decimal | Decimal | number | string) {
