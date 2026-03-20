@@ -16,7 +16,7 @@ export class ProductsService {
 
   async findAll(query: ProductQueryDto) {
     const where = {
-      ...(typeof query.isActive === 'boolean' ? { isActive: query.isActive } : {}),
+      isActive: true,
       ...(query.manufacturerId !== undefined ? { manufacturerId: query.manufacturerId } : {}),
       ...(query.activeSubstanceId !== undefined ? { activeSubstanceId: query.activeSubstanceId } : {}),
       ...(query.productStatusId !== undefined ? { productStatusId: query.productStatusId } : {}),
@@ -72,8 +72,8 @@ export class ProductsService {
   }
 
   async findById(id: number) {
-    const product = await this.prisma.product.findUnique({
-      where: { id },
+    const product = await this.prisma.product.findFirst({
+      where: { id, isActive: true },
       include: {
         manufacturer: true,
         activeSubstance: true,
@@ -188,8 +188,9 @@ export class ProductsService {
     await this.findById(id);
 
     try {
-      const deleted = await this.prisma.product.delete({
+      const deleted = await this.prisma.product.update({
         where: { id },
+        data: { isActive: false },
         include: {
           manufacturer: true,
           activeSubstance: true,

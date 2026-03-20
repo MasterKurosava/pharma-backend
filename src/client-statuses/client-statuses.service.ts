@@ -10,6 +10,7 @@ export class ClientStatusesService {
 
   async findAll(query: ClientStatusQueryDto) {
     const where = {
+      deletedAt: null,
       ...(query.search
         ? {
             OR: [
@@ -31,8 +32,8 @@ export class ClientStatusesService {
   }
 
   async findById(id: number) {
-    const entity = await this.prisma.clientStatus.findUnique({
-      where: { id },
+    const entity = await this.prisma.clientStatus.findFirst({
+      where: { id, deletedAt: null },
     });
 
     if (!entity) {
@@ -65,6 +66,9 @@ export class ClientStatusesService {
 
   async delete(id: number) {
     await this.findById(id);
-    return this.prisma.clientStatus.delete({ where: { id } });
+    return this.prisma.clientStatus.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
   }
 }

@@ -9,7 +9,9 @@ import {
   Post,
   Query,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { StoragePlacesService } from './storage-places.service';
 import { CreateStoragePlaceDto } from './dto/create-storage-place.dto';
@@ -17,11 +19,13 @@ import { UpdateStoragePlaceDto } from './dto/update-storage-place.dto';
 import { StoragePlaceQueryDto } from './dto/storage-place-query.dto';
 
 @UseGuards(JwtAuthGuard)
+@UseInterceptors(CacheInterceptor)
 @Controller('storage-places')
 export class StoragePlacesController {
   constructor(private readonly service: StoragePlacesService) {}
 
   @Get()
+  @CacheTTL(900)
   findAll(@Query() query: StoragePlaceQueryDto) {
     return this.service.findAll(query);
   }

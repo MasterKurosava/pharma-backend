@@ -9,7 +9,9 @@ import {
   Post,
   Query,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { DeliveryTypesService } from './delivery-types.service';
 import { CreateDeliveryTypeDto } from './dto/create-delivery-type.dto';
@@ -17,11 +19,13 @@ import { UpdateDeliveryTypeDto } from './dto/update-delivery-type.dto';
 import { DeliveryTypeQueryDto } from './dto/delivery-type-query.dto';
 
 @UseGuards(JwtAuthGuard)
+@UseInterceptors(CacheInterceptor)
 @Controller('delivery-types')
 export class DeliveryTypesController {
   constructor(private readonly service: DeliveryTypesService) {}
 
   @Get()
+  @CacheTTL(900)
   findAll(@Query() query: DeliveryTypeQueryDto) {
     return this.service.findAll(query);
   }

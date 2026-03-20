@@ -10,6 +10,7 @@ export class AssemblyStatusesService {
 
   async findAll(query: AssemblyStatusQueryDto) {
     const where = {
+      deletedAt: null,
       ...(query.search
         ? {
             OR: [
@@ -31,8 +32,8 @@ export class AssemblyStatusesService {
   }
 
   async findById(id: number) {
-    const entity = await this.prisma.assemblyStatus.findUnique({
-      where: { id },
+    const entity = await this.prisma.assemblyStatus.findFirst({
+      where: { id, deletedAt: null },
     });
 
     if (!entity) {
@@ -65,6 +66,9 @@ export class AssemblyStatusesService {
 
   async delete(id: number) {
     await this.findById(id);
-    return this.prisma.assemblyStatus.delete({ where: { id } });
+    return this.prisma.assemblyStatus.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
   }
 }

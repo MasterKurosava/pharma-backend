@@ -10,7 +10,7 @@ export class ManufacturersService {
 
   async findAll(query: ManufacturerQueryDto) {
     const where = {
-      ...(typeof query.isActive === 'boolean' ? { isActive: query.isActive } : {}),
+      isActive: true,
       ...(query.search
         ? {
             OR: [
@@ -53,8 +53,8 @@ export class ManufacturersService {
   }
 
   async findById(id: number) {
-    const entity = await this.prisma.manufacturer.findUnique({
-      where: { id },
+    const entity = await this.prisma.manufacturer.findFirst({
+      where: { id, isActive: true },
     });
 
     if (!entity) {
@@ -109,6 +109,9 @@ export class ManufacturersService {
 
   async delete(id: number) {
     await this.findById(id);
-    return this.prisma.manufacturer.delete({ where: { id } });
+    return this.prisma.manufacturer.update({
+      where: { id },
+      data: { isActive: false },
+    });
   }
 }

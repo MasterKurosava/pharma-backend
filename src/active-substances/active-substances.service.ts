@@ -10,7 +10,7 @@ export class ActiveSubstancesService {
 
   async findAll(query: ActiveSubstanceQueryDto) {
     const where = {
-      ...(typeof query.isActive === 'boolean' ? { isActive: query.isActive } : {}),
+      isActive: true,
       ...(query.search
         ? {
             OR: [
@@ -53,8 +53,8 @@ export class ActiveSubstancesService {
   }
 
   async findById(id: number) {
-    const entity = await this.prisma.activeSubstance.findUnique({
-      where: { id },
+    const entity = await this.prisma.activeSubstance.findFirst({
+      where: { id, isActive: true },
     });
 
     if (!entity) {
@@ -87,6 +87,9 @@ export class ActiveSubstancesService {
 
   async delete(id: number) {
     await this.findById(id);
-    return this.prisma.activeSubstance.delete({ where: { id } });
+    return this.prisma.activeSubstance.update({
+      where: { id },
+      data: { isActive: false },
+    });
   }
 }

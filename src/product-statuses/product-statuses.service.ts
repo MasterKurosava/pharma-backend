@@ -10,6 +10,7 @@ export class ProductStatusesService {
 
   async findAll(query: ProductStatusQueryDto) {
     const where = {
+      deletedAt: null,
       ...(query.search
         ? {
             OR: [
@@ -31,8 +32,8 @@ export class ProductStatusesService {
   }
 
   async findById(id: number) {
-    const entity = await this.prisma.productStatus.findUnique({
-      where: { id },
+    const entity = await this.prisma.productStatus.findFirst({
+      where: { id, deletedAt: null },
     });
 
     if (!entity) {
@@ -65,6 +66,9 @@ export class ProductStatusesService {
 
   async delete(id: number) {
     await this.findById(id);
-    return this.prisma.productStatus.delete({ where: { id } });
+    return this.prisma.productStatus.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
   }
 }

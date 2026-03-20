@@ -9,7 +9,9 @@ import {
   Post,
   Query,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { ActiveSubstancesService } from './active-substances.service';
 import { CreateActiveSubstanceDto } from './dto/create-active-substance.dto';
@@ -17,11 +19,13 @@ import { UpdateActiveSubstanceDto } from './dto/update-active-substance.dto';
 import { ActiveSubstanceQueryDto } from './dto/active-substance-query.dto';
 
 @UseGuards(JwtAuthGuard)
+@UseInterceptors(CacheInterceptor)
 @Controller('active-substances')
 export class ActiveSubstancesController {
   constructor(private readonly service: ActiveSubstancesService) {}
 
   @Get()
+  @CacheTTL(900)
   findAll(@Query() query: ActiveSubstanceQueryDto) {
     return this.service.findAll(query);
   }

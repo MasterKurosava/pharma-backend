@@ -71,6 +71,7 @@ model ClientStatus {
   id        Int      @id @default(autoincrement())
   name      String
   color     String?
+  deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -83,6 +84,7 @@ model Client {
   phone          String   @unique
   clientStatusId Int?
   note           String?
+  deletedAt      DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -122,6 +124,7 @@ model ProductStatus {
   id        Int      @id @default(autoincrement())
   name      String
   color     String?
+  deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -132,6 +135,7 @@ model ProductOrderSource {
   id        Int      @id @default(autoincrement())
   name      String
   color     String?
+  deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -244,6 +248,7 @@ model PaymentStatus {
   name      String
   color     String?
   isSystem  Boolean  @default(false)
+  deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -254,6 +259,7 @@ model AssemblyStatus {
   id        Int      @id @default(autoincrement())
   name      String
   color     String?
+  deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -266,6 +272,7 @@ model OrderStatus {
   name      String
   color     String?
   isSystem  Boolean  @default(false)
+  deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

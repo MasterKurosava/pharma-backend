@@ -67,6 +67,9 @@ Response:
 - `PATCH /<resource>/:id`
 - `DELETE /<resource>/:id`
 
+`DELETE` в справочниках и основных сущностях (кроме заказов) работает как soft delete
+(деактивация через `isActive=false` или проставление `deletedAt`).
+
 Справочники:
 
 - `client-statuses`
@@ -147,6 +150,8 @@ Response products включает вычисляемое поле:
 - `POST /orders`
 - `PATCH /orders/:id` **(единый save всей формы)**
 - `DELETE /orders/:id`
+
+Для заказов используется hard delete (с очисткой связанных служебных записей).
 
 ### Важно: точечные actions/items endpoints удалены
 

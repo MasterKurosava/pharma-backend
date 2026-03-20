@@ -9,7 +9,9 @@ import {
   Post,
   Query,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { OrderStatusesService } from './order-statuses.service';
 import { CreateOrderStatusDto } from './dto/create-order-status.dto';
@@ -17,11 +19,13 @@ import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { OrderStatusQueryDto } from './dto/order-status-query.dto';
 
 @UseGuards(JwtAuthGuard)
+@UseInterceptors(CacheInterceptor)
 @Controller('order-statuses')
 export class OrderStatusesController {
   constructor(private readonly service: OrderStatusesService) {}
 
   @Get()
+  @CacheTTL(900)
   findAll(@Query() query: OrderStatusQueryDto) {
     return this.service.findAll(query);
   }

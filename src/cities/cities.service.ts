@@ -16,7 +16,7 @@ export class CitiesService {
 
   async findAll(query: CityQueryDto) {
     const where = {
-      ...(typeof query.isActive === 'boolean' ? { isActive: query.isActive } : {}),
+      isActive: true,
       ...(query.countryId !== undefined ? { countryId: query.countryId } : {}),
       ...(query.search
         ? {
@@ -45,8 +45,8 @@ export class CitiesService {
   }
 
   async findById(id: number) {
-    const city = await this.prisma.city.findUnique({
-      where: { id },
+    const city = await this.prisma.city.findFirst({
+      where: { id, isActive: true },
     });
 
     if (!city) {
@@ -99,7 +99,10 @@ export class CitiesService {
     await this.findById(id);
 
     try {
-      return this.prisma.city.delete({ where: { id } });
+      return this.prisma.city.update({
+        where: { id },
+        data: { isActive: false },
+      });
     } catch (error) {
       this.prismaErrorMapper.rethrow(error);
     }

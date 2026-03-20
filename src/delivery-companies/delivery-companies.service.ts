@@ -10,7 +10,7 @@ export class DeliveryCompaniesService {
 
   async findAll(query: DeliveryCompanyQueryDto) {
     const where = {
-      ...(typeof query.isActive === 'boolean' ? { isActive: query.isActive } : {}),
+      isActive: true,
       ...(query.search
         ? {
             OR: [
@@ -32,8 +32,8 @@ export class DeliveryCompaniesService {
   }
 
   async findById(id: number) {
-    const entity = await this.prisma.deliveryCompany.findUnique({
-      where: { id },
+    const entity = await this.prisma.deliveryCompany.findFirst({
+      where: { id, isActive: true },
     });
 
     if (!entity) {
@@ -66,6 +66,9 @@ export class DeliveryCompaniesService {
 
   async delete(id: number) {
     await this.findById(id);
-    return this.prisma.deliveryCompany.delete({ where: { id } });
+    return this.prisma.deliveryCompany.update({
+      where: { id },
+      data: { isActive: false },
+    });
   }
 }

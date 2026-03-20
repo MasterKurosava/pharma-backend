@@ -24,6 +24,7 @@ export class ClientsService {
     }
 
     const where = {
+      deletedAt: null,
       ...(query.clientStatusId !== undefined ? { clientStatusId: query.clientStatusId } : {}),
       ...(query.search
         ? {
@@ -52,8 +53,8 @@ export class ClientsService {
   }
 
   async findById(id: number) {
-    const client = await this.prisma.client.findUnique({
-      where: { id },
+    const client = await this.prisma.client.findFirst({
+      where: { id, deletedAt: null },
     });
 
     if (!client) {
@@ -141,7 +142,10 @@ export class ClientsService {
     await this.findById(id);
 
     try {
-      return this.prisma.client.delete({ where: { id } });
+      return this.prisma.client.update({
+        where: { id },
+        data: { deletedAt: new Date() },
+      });
     } catch (error) {
       this.prismaErrorMapper.rethrow(error);
     }

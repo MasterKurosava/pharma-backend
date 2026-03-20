@@ -13,7 +13,7 @@ import {
   
     async findAll(query: CountryQueryDto) {
       const where = {
-        ...(typeof query.isActive === 'boolean' ? { isActive: query.isActive } : {}),
+        isActive: true,
         ...(query.search
           ? {
               OR: [
@@ -32,8 +32,8 @@ import {
     }
   
     async findById(id: number) {
-      const country = await this.prisma.country.findUnique({
-        where: { id },
+      const country = await this.prisma.country.findFirst({
+        where: { id, isActive: true },
       });
   
       if (!country) {
@@ -66,6 +66,9 @@ import {
 
     async delete(id: number) {
       await this.findById(id);
-      return this.prisma.country.delete({ where: { id } });
+      return this.prisma.country.update({
+        where: { id },
+        data: { isActive: false },
+      });
     }
   }

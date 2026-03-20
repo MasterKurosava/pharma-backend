@@ -9,7 +9,9 @@ import {
   Post,
   Query,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AssemblyStatusesService } from './assembly-statuses.service';
 import { CreateAssemblyStatusDto } from './dto/create-assembly-status.dto';
@@ -17,11 +19,13 @@ import { UpdateAssemblyStatusDto } from './dto/update-assembly-status.dto';
 import { AssemblyStatusQueryDto } from './dto/assembly-status-query.dto';
 
 @UseGuards(JwtAuthGuard)
+@UseInterceptors(CacheInterceptor)
 @Controller('assembly-statuses')
 export class AssemblyStatusesController {
   constructor(private readonly service: AssemblyStatusesService) {}
 
   @Get()
+  @CacheTTL(900)
   findAll(@Query() query: AssemblyStatusQueryDto) {
     return this.service.findAll(query);
   }

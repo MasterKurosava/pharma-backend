@@ -10,7 +10,7 @@ export class StoragePlacesService {
 
   async findAll(query: StoragePlaceQueryDto) {
     const where = {
-      ...(typeof query.isActive === 'boolean' ? { isActive: query.isActive } : {}),
+      isActive: true,
       ...(query.search
         ? {
             OR: [
@@ -32,8 +32,8 @@ export class StoragePlacesService {
   }
 
   async findById(id: number) {
-    const entity = await this.prisma.storagePlace.findUnique({
-      where: { id },
+    const entity = await this.prisma.storagePlace.findFirst({
+      where: { id, isActive: true },
     });
 
     if (!entity) {
@@ -68,6 +68,9 @@ export class StoragePlacesService {
 
   async delete(id: number) {
     await this.findById(id);
-    return this.prisma.storagePlace.delete({ where: { id } });
+    return this.prisma.storagePlace.update({
+      where: { id },
+      data: { isActive: false },
+    });
   }
 }

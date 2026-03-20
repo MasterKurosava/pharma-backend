@@ -17,10 +17,19 @@ export class EntityExistenceService {
       throw new Error(`Prisma model delegate "${model}" is not available`);
     }
 
-    const entity = await delegate.findUnique({
-      where: { id },
-      ...(select ? { select } : {}),
-    });
+    let entity: unknown;
+
+    try {
+      entity = await delegate.findFirst({
+        where: { id, deletedAt: null },
+        ...(select ? { select } : {}),
+      });
+    } catch {
+      entity = await delegate.findUnique({
+        where: { id },
+        ...(select ? { select } : {}),
+      });
+    }
 
     if (!entity) {
       throw new NotFoundException(notFoundMessage);
