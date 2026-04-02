@@ -21,6 +21,7 @@ enum DeliveryStatusCode {
   COLLECT_DOVAS
   COLLECT_PONY
   COLLECT_YANDEX
+  COLLECT_PICKUP
 }
 
 enum PaymentStatusCode {

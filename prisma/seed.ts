@@ -325,8 +325,13 @@ async function main() {
         countryId: kzId,
         city: index % 2 === 0 ? 'Алматы' : 'Астана',
         address: `Демо адрес ${index + 1}`,
-        deliveryStatus: [DeliveryStatusCode.COLLECT_DOVAS, DeliveryStatusCode.COLLECT_PONY, DeliveryStatusCode.COLLECT_YANDEX][
-          index % 3
+        deliveryStatus: [
+          DeliveryStatusCode.COLLECT_DOVAS,
+          DeliveryStatusCode.COLLECT_PONY,
+          DeliveryStatusCode.COLLECT_YANDEX,
+          DeliveryStatusCode.COLLECT_PICKUP,
+        ][
+          index % 4
         ],
         deliveryPrice,
         itemsTotalPrice,

@@ -39,7 +39,7 @@ export class OrderPrecheckService {
     // deliveryStatus is required for "Требует сборки" and is limited by enum values.
     if (!deliveryStatus) {
       throw new BadRequestException(
-        'Для статуса "Требует сборки" обязательно выбрать статус доставки (ДоВас/Пони/Яндекс)',
+        'Для статуса "Требует сборки" обязательно выбрать направление сборки (ДоВас/Пони/Яндекс/Самовывоз)',
       );
     }
   }

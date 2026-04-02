@@ -42,6 +42,8 @@ const DELIVERY_EDITABLE_FIELDS: OrderUpdateFieldKey[] = [
   'city',
   'address',
   'deliveryPrice',
+  'paymentStatus',
+  'paidAmount',
   'description',
 ];
 
