@@ -1,12 +1,8 @@
 import {
-    Body,
     Controller,
-    Delete,
     Get,
     Param,
     ParseIntPipe,
-    Patch,
-    Post,
     Query,
     UseGuards,
   UseInterceptors,
@@ -14,8 +10,6 @@ import {
   import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
   import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
   import { CountriesService } from './countries.service';
-  import { CreateCountryDto } from './dto/create-country.dto';
-  import { UpdateCountryDto } from './dto/update-country.dto';
   import { CountryQueryDto } from './dto/country-query.dto';
   
   @UseGuards(JwtAuthGuard)
@@ -35,21 +29,4 @@ import {
       return this.countriesService.findById(id);
     }
   
-    @Post()
-    create(@Body() dto: CreateCountryDto) {
-      return this.countriesService.create(dto);
-    }
-  
-    @Patch(':id')
-    update(
-      @Param('id', ParseIntPipe) id: number,
-      @Body() dto: UpdateCountryDto,
-    ) {
-      return this.countriesService.update(id, dto);
-    }
-
-    @Delete(':id')
-    delete(@Param('id', ParseIntPipe) id: number) {
-      return this.countriesService.delete(id);
-    }
   }

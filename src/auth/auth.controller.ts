@@ -1,12 +1,16 @@
 import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
-import { CurrentUser } from 'src/common/decorators/current-user.decorator';
-import { JwtAuthGuard } from 'src/common/guards/jwt-auth.guard';
+import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { AccessPolicyService } from '../common/access/access-policy.service';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly accessPolicy: AccessPolicyService,
+  ) {}
 
   @Post('login')
   login(@Body() dto: LoginDto) {
@@ -15,7 +19,11 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Get('me')
-  me(@CurrentUser() user: { userId: number; email: string; role: string }) {
-    return user;
+  async me(@CurrentUser() user: { userId: number; login: string; email?: string; role: string }) {
+    const policy = await this.accessPolicy.getAccessPolicy(user.role);
+    return {
+      ...user,
+      accessPolicy: policy,
+    };
   }
 }

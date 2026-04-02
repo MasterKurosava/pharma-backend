@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { ProductAvailabilityStatus } from '@prisma/client';
+import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 export class ProductQueryDto {
   @IsOptional()
@@ -25,13 +26,8 @@ export class ProductQueryDto {
   activeSubstanceId?: number;
 
   @IsOptional()
-  @Transform(({ value }) => {
-    if (value === undefined) return value;
-    return Number(value);
-  })
-  @IsInt()
-  @Min(1)
-  productStatusId?: number;
+  @IsEnum(ProductAvailabilityStatus)
+  availabilityStatus?: ProductAvailabilityStatus;
 
   @IsOptional()
   @Transform(({ value }) => {

@@ -7,9 +7,37 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum OrderStatusCode {
+  ORDER
+  DELIVERY_REGISTRATION
+  ADDRESS_REQUIRED
+  ASSEMBLY_REQUIRED
+  ASSEMBLED_WRITTEN_OFF
+  PACKED
+  CLOSED
+}
+
+enum DeliveryStatusCode {
+  COLLECT_DOVAS
+  COLLECT_PONY
+  COLLECT_YANDEX
+}
+
+enum PaymentStatusCode {
+  UNPAID
+  PREPAID_50
+  PAID
+}
+
+enum ProductAvailabilityStatus {
+  OUT_OF_STOCK
+  ON_REQUEST
+  IN_STOCK
+}
+
 model Role {
   id        Int      @id @default(autoincrement())
-  name      String
+  name      String   @unique
   code      String   @unique
   isSystem  Boolean  @default(false)
   createdAt DateTime @default(now())
@@ -20,8 +48,11 @@ model Role {
 
 model User {
   id           Int       @id @default(autoincrement())
-  email        String    @unique
+  login        String    @unique
+  email        String?   @unique
   passwordHash String
+  firstName    String?   @map("first_name")
+  lastName     String?   @map("last_name")
   name         String?
   roleId       Int
   isActive     Boolean   @default(true)
@@ -31,8 +62,6 @@ model User {
 
   role Role @relation(fields: [roleId], references: [id])
 
-  responsibleOrders Order[] @relation("OrderResponsibleUser")
-  orderEvents       OrderEvent[] @relation("OrderEventCreatedByUser")
   productStockMovements ProductStockMovement[] @relation("ProductStockMovementCreatedByUser")
 
   @@index([roleId])
@@ -40,59 +69,14 @@ model User {
 
 model Country {
   id        Int      @id @default(autoincrement())
+  code      String?  @unique
   name      String
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  cities         City[]
   manufacturers  Manufacturer[]
   orders         Order[]
-}
-
-model City {
-  id        Int      @id @default(autoincrement())
-  countryId Int
-  name      String
-  region    String?
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  country Country @relation(fields: [countryId], references: [id])
-
-  cityDeliveryOptions CityDeliveryOption[]
-  orders              Order[]
-
-  @@index([countryId])
-}
-
-model ClientStatus {
-  id        Int      @id @default(autoincrement())
-  name      String
-  color     String?
-  deletedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  clients Client[]
-}
-
-model Client {
-  id             Int      @id @default(autoincrement())
-  name           String
-  phone          String   @unique
-  clientStatusId Int?
-  note           String?
-  deletedAt      DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  status ClientStatus? @relation(fields: [clientStatusId], references: [id])
-
-  orders Order[]
-
-  @@index([clientStatusId])
 }
 
 model Manufacturer {
@@ -120,21 +104,11 @@ model ActiveSubstance {
   products Product[]
 }
 
-model ProductStatus {
-  id        Int      @id @default(autoincrement())
-  name      String
-  color     String?
-  deletedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  products Product[]
-}
-
 model ProductOrderSource {
   id        Int      @id @default(autoincrement())
   name      String
   color     String?
+  isActive  Boolean  @default(true)
   deletedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -149,7 +123,7 @@ model Product {
   imageUrl             String?
   manufacturerId       Int
   activeSubstanceId    Int
-  productStatusId      Int
+  availabilityStatus   ProductAvailabilityStatus @default(IN_STOCK)
   productOrderSourceId Int?
   stockQuantity        Int      @default(0)
   reservedQuantity     Int      @default(0)
@@ -160,7 +134,6 @@ model Product {
 
   manufacturer Manufacturer      @relation(fields: [manufacturerId], references: [id])
   activeSubstance ActiveSubstance @relation(fields: [activeSubstanceId], references: [id])
-  status ProductStatus           @relation(fields: [productStatusId], references: [id])
   orderSource ProductOrderSource? @relation(fields: [productOrderSourceId], references: [id])
 
   items OrderItem[]
@@ -168,7 +141,6 @@ model Product {
 
   @@index([manufacturerId])
   @@index([activeSubstanceId])
-  @@index([productStatusId])
   @@index([productOrderSourceId])
 }
 
@@ -194,91 +166,6 @@ model ProductStockMovement {
   @@index([createdAt])
 }
 
-model DeliveryCompany {
-  id        Int      @id @default(autoincrement())
-  name      String
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  deliveryTypes       DeliveryType[]
-  cityDeliveryOptions CityDeliveryOption[]
-  orders              Order[]
-}
-
-model DeliveryType {
-  id                Int      @id @default(autoincrement())
-  deliveryCompanyId Int
-  name              String
-  isActive          Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  company DeliveryCompany @relation(fields: [deliveryCompanyId], references: [id])
-
-  cityDeliveryOptions CityDeliveryOption[]
-  orders              Order[]
-
-  @@index([deliveryCompanyId])
-}
-
-model CityDeliveryOption {
-  id                Int      @id @default(autoincrement())
-  cityId            Int
-  deliveryCompanyId Int
-  deliveryTypeId    Int
-  isDefault         Boolean  @default(false)
-  isActive          Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  city    City            @relation(fields: [cityId], references: [id])
-  company DeliveryCompany @relation(fields: [deliveryCompanyId], references: [id])
-  type    DeliveryType    @relation(fields: [deliveryTypeId], references: [id])
-
-  @@index([cityId])
-  @@index([deliveryCompanyId])
-  @@index([deliveryTypeId])
-  @@unique([cityId, deliveryCompanyId, deliveryTypeId])
-}
-
-model PaymentStatus {
-  id        Int      @id @default(autoincrement())
-  code      String?  @unique
-  name      String
-  color     String?
-  isSystem  Boolean  @default(false)
-  deletedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  orders Order[]
-}
-
-model AssemblyStatus {
-  id        Int      @id @default(autoincrement())
-  name      String
-  color     String?
-  deletedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  orders Order[]
-}
-
-model OrderStatus {
-  id        Int      @id @default(autoincrement())
-  code      String?  @unique
-  name      String
-  color     String?
-  isSystem  Boolean  @default(false)
-  deletedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  orders Order[]
-}
-
 model StoragePlace {
   id          Int      @id @default(autoincrement())
   name        String
@@ -292,74 +179,33 @@ model StoragePlace {
 
 model Order {
   id                  Int      @id @default(autoincrement())
-  responsibleUserId   Int?
   orderDate           DateTime @default(now())
-  clientId            Int
+  clientPhone         String
   countryId           Int
-  cityId              Int
+  city                String
   address             String
-  deliveryCompanyId   Int?
-  deliveryTypeId      Int?
+  deliveryStatus      DeliveryStatusCode @default(COLLECT_DOVAS)
   deliveryPrice       Decimal  @default(0) @db.Decimal(10, 2)
   itemsTotalPrice     Decimal  @default(0) @db.Decimal(10, 2)
   totalPrice          Decimal  @default(0) @db.Decimal(10, 2)
   paidAmount          Decimal  @default(0) @db.Decimal(10, 2)
   remainingAmount     Decimal  @default(0) @db.Decimal(10, 2)
-  paymentStatusId     Int
-  orderStatusId       Int
-  assemblyStatusId    Int?
+  paymentStatus       PaymentStatusCode @default(UNPAID)
+  orderStatus         OrderStatusCode   @default(ORDER)
   storagePlaceId      Int?
   description         String?
-  clientNameSnapshot  String
-  clientPhoneSnapshot String
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  responsibleUser User?            @relation("OrderResponsibleUser", fields: [responsibleUserId], references: [id])
-  client          Client           @relation(fields: [clientId], references: [id])
   country         Country          @relation(fields: [countryId], references: [id])
-  city            City             @relation(fields: [cityId], references: [id])
-  deliveryCompany DeliveryCompany? @relation(fields: [deliveryCompanyId], references: [id])
-  deliveryType    DeliveryType?    @relation(fields: [deliveryTypeId], references: [id])
-  paymentStatus   PaymentStatus    @relation(fields: [paymentStatusId], references: [id])
-  orderStatus     OrderStatus      @relation(fields: [orderStatusId], references: [id])
-  assemblyStatus  AssemblyStatus?  @relation(fields: [assemblyStatusId], references: [id])
   storagePlace    StoragePlace?    @relation(fields: [storagePlaceId], references: [id])
 
   items OrderItem[]
-  events OrderEvent[]
   stockMovements ProductStockMovement[]
 
-  @@index([responsibleUserId])
-  @@index([clientId])
   @@index([countryId])
-  @@index([cityId])
-  @@index([deliveryCompanyId])
-  @@index([deliveryTypeId])
-  @@index([paymentStatusId])
-  @@index([orderStatusId])
-  @@index([assemblyStatusId])
+  @@index([city])
   @@index([storagePlaceId])
-}
-
-model OrderEvent {
-  id              Int      @id @default(autoincrement())
-  orderId         Int
-  createdByUserId Int?
-  eventType       String
-  fieldName       String?
-  oldValueJson    Json?
-  newValueJson    Json?
-  message         String?
-  payloadJson     Json?
-  createdAt       DateTime @default(now())
-
-  order         Order @relation(fields: [orderId], references: [id])
-  createdByUser User? @relation("OrderEventCreatedByUser", fields: [createdByUserId], references: [id])
-
-  @@index([orderId])
-  @@index([createdByUserId])
-  @@index([createdAt])
 }
 
 model OrderItem {

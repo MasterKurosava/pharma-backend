@@ -1,30 +1,33 @@
 type HttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
 type ApiResult<T = unknown> = {
-  ok: boolean;
   status: number;
   data: T | null;
   rawText: string;
 };
 
-type EntityWithId = { id: number; name?: string; code?: string };
-
-type TestContext = {
+type Ctx = {
   baseUrl: string;
   token: string;
-  ids: Record<string, number>;
-  orderIds: number[];
+  ids: {
+    countryId: number;
+    manufacturerId: number;
+    activeSubstanceId: number;
+    sourceId: number;
+    storagePlaceId: number;
+    productId: number;
+    orderId: number;
+  };
+  created: Array<{ path: string; id: number }>;
 };
 
 const BASE_URL = process.env.API_BASE_URL ?? 'http://localhost:3000/api';
 const LOGIN_EMAIL = process.env.TEST_ADMIN_EMAIL ?? 'admin@example.com';
 const LOGIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD ?? 'admin123';
-
-const colors = ['#1D4ED8', '#0EA5E9', '#0D9488', '#16A34A', '#EA580C', '#DC2626'];
 const failures: string[] = [];
 
 function randomSuffix() {
-  return `${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+  return `${Date.now()}-${Math.floor(Math.random() * 100000)}`;
 }
 
 function logOk(message: string) {
@@ -38,13 +41,13 @@ function logError(message: string) {
 async function apiRequest<T = unknown>(
   method: HttpMethod,
   url: string,
-  token: string,
+  token?: string,
   body?: Record<string, unknown>,
 ): Promise<ApiResult<T>> {
   const response = await fetch(url, {
     method,
     headers: {
-      Authorization: `Bearer ${token}`,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       'Content-Type': 'application/json',
     },
     body: body ? JSON.stringify(body) : undefined,
@@ -60,511 +63,314 @@ async function apiRequest<T = unknown>(
     }
   }
 
-  return {
-    ok: response.ok,
-    status: response.status,
-    data,
-    rawText,
-  };
+  return { status: response.status, data, rawText };
 }
 
-function expectStatus(result: ApiResult, expectedStatus: number, title: string): boolean {
-  if (result.status === expectedStatus) {
-    logOk(`${title} -> status ${expectedStatus}`);
+function expectStatus(result: ApiResult, expected: number, title: string): boolean {
+  const ok = result.status === expected;
+  if (ok) {
+    logOk(`${title} -> ${expected}`);
     return true;
   }
-  logError(`${title} -> expected ${expectedStatus}, got ${result.status}. Body: ${result.rawText}`);
+  logError(`${title} -> expected ${expected}, got ${result.status}. Body: ${result.rawText}`);
+  failures.push(`${title}: expected ${expected}, got ${result.status}`);
   return false;
 }
 
-function requireStatus(result: ApiResult, expectedStatus: number, title: string) {
-  const ok = expectStatus(result, expectedStatus, title);
-  if (!ok) {
-    failures.push(`${title}: expected ${expectedStatus}, got ${result.status}`);
+function expectStatusIn(result: ApiResult, expected: number[], title: string): boolean {
+  const ok = expected.includes(result.status);
+  if (ok) {
+    logOk(`${title} -> ${result.status}`);
+    return true;
   }
-  return ok;
+  logError(`${title} -> expected one of [${expected.join(', ')}], got ${result.status}. Body: ${result.rawText}`);
+  failures.push(`${title}: expected one of [${expected.join(', ')}], got ${result.status}`);
+  return false;
 }
 
-function mustStatus(result: ApiResult, expectedStatus: number, title: string) {
-  if (!requireStatus(result, expectedStatus, title)) {
-    throw new Error(`${title}: expected ${expectedStatus}, got ${result.status}`);
+function mustStatus(result: ApiResult, expected: number, title: string) {
+  if (!expectStatus(result, expected, title)) {
+    throw new Error(`${title}: expected ${expected}, got ${result.status}`);
   }
 }
 
 async function loginAndGetToken(baseUrl: string): Promise<string> {
-  const response = await fetch(`${baseUrl}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      email: LOGIN_EMAIL,
-      password: LOGIN_PASSWORD,
-    }),
+  const response = await apiRequest<{ accessToken?: string }>('POST', `${baseUrl}/auth/login`, undefined, {
+    email: LOGIN_EMAIL,
+    password: LOGIN_PASSWORD,
   });
-
-  const raw = await response.text();
-  if (!response.ok) {
-    throw new Error(
-      `Login failed with status ${response.status}. Body: ${raw}. ` +
-        `Use TEST_ADMIN_EMAIL / TEST_ADMIN_PASSWORD if needed.`,
-    );
-  }
-
-  const parsed = JSON.parse(raw) as { accessToken?: string };
-  if (!parsed.accessToken) {
-    throw new Error('Login response does not contain accessToken');
-  }
-  return parsed.accessToken;
+  mustStatus(response, 201, 'auth/login');
+  const token = response.data?.accessToken;
+  if (!token) throw new Error('auth/login did not return accessToken');
+  return token;
 }
 
 async function createEntity(
-  ctx: TestContext,
+  ctx: Ctx,
   path: string,
   payload: Record<string, unknown>,
   title: string,
-): Promise<number> {
+  remember = true,
+) {
   const res = await apiRequest<{ id?: number }>('POST', `${ctx.baseUrl}/${path}`, ctx.token, payload);
   mustStatus(res, 201, title);
-  const id = (res.data as { id?: number } | null)?.id;
-  if (!id) {
-    throw new Error(`${title}: no id returned`);
+  const id = res.data?.id;
+  if (!id) throw new Error(`${title}: no id in response`);
+  if (remember) {
+    ctx.created.push({ path, id });
   }
   return id;
 }
 
-async function getList<T = unknown>(ctx: TestContext, path: string): Promise<T> {
-  const res = await apiRequest<T>('GET', `${ctx.baseUrl}/${path}`, ctx.token);
-  mustStatus(res, 200, `${path}: GET list`);
-  return res.data as T;
-}
+async function prepareCoreReferences(ctx: Ctx) {
+  const countries = await apiRequest<Array<{ id: number; code?: string; name: string }>>('GET', `${ctx.baseUrl}/countries`, ctx.token);
+  mustStatus(countries, 200, 'countries: list');
+  const kz = countries.data?.find((c) => c.code === 'KZ' || c.name === 'Казахстан');
+  if (!kz) throw new Error('countries: KZ not found');
+  ctx.ids.countryId = kz.id;
 
-async function getSystemStatusIdByCode(ctx: TestContext, path: string, code: string): Promise<number> {
-  const list = await getList<EntityWithId[]>(ctx, path);
-  const found = list.find((x) => (x.code ?? '').toUpperCase() === code.toUpperCase());
-  if (!found?.id) {
-    throw new Error(`${path}: code ${code} not found`);
-  }
-  return found.id;
-}
-
-async function runDictionaryCrudSuite(
-  ctx: TestContext,
-  config: {
-    name: string;
-    path: string;
-    createPayload: (s: string, c: TestContext) => Record<string, unknown>;
-    updatePayload: (s: string, c: TestContext) => Record<string, unknown>;
-    invalidPayload?: (s: string, c: TestContext) => Record<string, unknown>;
-    invalidStatus?: number;
-    storeIdAs?: string;
-  },
-) {
-  const s = randomSuffix();
-  const base = `${ctx.baseUrl}/${config.path}`;
-  console.log(`\n--- ${config.name} ---`);
-
-  requireStatus(await apiRequest('GET', base, ctx.token), 200, `${config.name}: GET list`);
-
-  const createdId = await createEntity(ctx, config.path, config.createPayload(s, ctx), `${config.name}: POST create`);
-  logOk(`${config.name}: created id=${createdId}`);
-
-  if (config.storeIdAs) {
-    ctx.ids[config.storeIdAs] = createdId;
-  }
-
-  requireStatus(await apiRequest('GET', `${base}/${createdId}`, ctx.token), 200, `${config.name}: GET by id`);
-  requireStatus(
-    await apiRequest('PATCH', `${base}/${createdId}`, ctx.token, config.updatePayload(s, ctx)),
-    200,
-    `${config.name}: PATCH update`,
-  );
-  requireStatus(
-    await apiRequest('GET', `${base}/999999999`, ctx.token),
-    404,
-    `${config.name}: GET non-existing id`,
-  );
-
-  if (config.invalidPayload) {
-    requireStatus(
-      await apiRequest('POST', base, ctx.token, config.invalidPayload(s, ctx)),
-      config.invalidStatus ?? 400,
-      `${config.name}: invalid payload`,
-    );
-  }
-}
-
-async function runCitiesSuite(ctx: TestContext) {
-  console.log('\n--- cities ---');
-  const s = randomSuffix();
-
-  const countryId = await createEntity(
+  const suffix = randomSuffix();
+  ctx.ids.manufacturerId = await createEntity(
     ctx,
-    'countries',
-    { name: `Country ${s}`, isActive: true },
-    'countries: create for cities',
+    'manufacturers',
+    { name: `Smoke Manufacturer ${suffix}`, countryId: ctx.ids.countryId, isActive: true },
+    'manufacturers: create',
   );
-  ctx.ids.countryId = countryId;
-
-  const cityId = await createEntity(
+  ctx.ids.activeSubstanceId = await createEntity(
     ctx,
-    'cities',
-    {
-      countryId,
-      name: `City ${s}`,
-      region: `Region ${s}`,
-      isActive: true,
-    },
-    'cities: create',
+    'active-substances',
+    { name: `Smoke Substance ${suffix}`, isActive: true },
+    'active-substances: create',
   );
-  ctx.ids.cityId = cityId;
-
-  requireStatus(
-    await apiRequest('GET', `${ctx.baseUrl}/cities?countryId=${countryId}&search=City`, ctx.token),
-    200,
-    'cities: list filter countryId + search',
+  ctx.ids.sourceId = await createEntity(
+    ctx,
+    'product-order-sources',
+    { name: `Smoke Source ${suffix}`, color: '#2563eb', isActive: true },
+    'product-order-sources: create',
   );
-
-  requireStatus(
-    await apiRequest('PATCH', `${ctx.baseUrl}/cities/${cityId}`, ctx.token, {
-      name: `City upd ${s}`,
-      region: `Region upd ${s}`,
-      isActive: false,
-    }),
-    200,
-    'cities: patch',
-  );
-
-  requireStatus(
-    await apiRequest('POST', `${ctx.baseUrl}/cities`, ctx.token, {
-      countryId: 999999999,
-      name: `City invalid ${s}`,
-    }),
-    404,
-    'cities: invalid country',
+  ctx.ids.storagePlaceId = await createEntity(
+    ctx,
+    'storage-places',
+    { name: `Smoke Storage ${suffix}`, description: 'Smoke storage', isActive: true },
+    'storage-places: create',
   );
 }
 
-async function runClientsSuite(ctx: TestContext) {
-  console.log('\n--- clients ---');
-  const s = randomSuffix();
-  const phone = `+99890${Math.floor(Math.random() * 1000000)
-    .toString()
-    .padStart(6, '0')}`;
-
-  const clientId = await createEntity(
-    ctx,
-    'clients',
-    {
-      name: `Client ${s}`,
-      phone,
-      clientStatusId: ctx.ids.clientStatusId,
-      note: `Note ${s}`,
-    },
-    'clients: create',
+async function runReadOnlyCountriesChecks(ctx: Ctx) {
+  console.log('\n--- read-only countries ---');
+  const countries = await apiRequest<Array<{ id: number }>>('GET', `${ctx.baseUrl}/countries`, ctx.token);
+  mustStatus(countries, 200, 'countries: list');
+  const countryId = countries.data?.[0]?.id;
+  if (!countryId) throw new Error('countries: empty list');
+  mustStatus(await apiRequest('GET', `${ctx.baseUrl}/countries/${countryId}`, ctx.token), 200, 'countries: get by id');
+  expectStatusIn(
+    await apiRequest('POST', `${ctx.baseUrl}/countries`, ctx.token, { name: 'Blocked Country' }),
+    [404, 405],
+    'countries: create blocked',
   );
-  ctx.ids.clientId = clientId;
-
-  requireStatus(
-    await apiRequest('GET', `${ctx.baseUrl}/clients?clientStatusId=${ctx.ids.clientStatusId}&search=Client`, ctx.token),
-    200,
-    'clients: list with filters',
+  expectStatusIn(
+    await apiRequest('PATCH', `${ctx.baseUrl}/countries/${countryId}`, ctx.token, { name: 'Blocked' }),
+    [404, 405],
+    'countries: update blocked',
   );
+  expectStatusIn(await apiRequest('DELETE', `${ctx.baseUrl}/countries/${countryId}`, ctx.token), [404, 405], 'countries: delete blocked');
 
-  requireStatus(
-    await apiRequest('PATCH', `${ctx.baseUrl}/clients/${clientId}`, ctx.token, {
-      name: `Client upd ${s}`,
-      note: `Note upd ${s}`,
-    }),
-    200,
-    'clients: patch',
-  );
-
-  requireStatus(
-    await apiRequest('POST', `${ctx.baseUrl}/clients`, ctx.token, {
-      name: `Client dup ${s}`,
-      phone,
-    }),
-    409,
-    'clients: duplicate phone',
-  );
 }
 
-async function runProductsSuite(ctx: TestContext) {
+async function runRolesChecks(ctx: Ctx) {
+  console.log('\n--- roles ---');
+  const roles = await apiRequest<Array<{ code: string; isSystem?: boolean }>>('GET', `${ctx.baseUrl}/roles`, ctx.token);
+  mustStatus(roles, 200, 'roles: list');
+  const expected = ['admin', 'manager', 'delivery_operator', 'assembler'];
+  for (const code of expected) {
+    const found = roles.data?.find((r) => r.code === code);
+    if (!found) {
+      failures.push(`roles: missing ${code}`);
+      logError(`roles: missing ${code}`);
+    } else {
+      logOk(`roles: contains ${code}`);
+    }
+  }
+}
+
+async function runProductsChecks(ctx: Ctx) {
   console.log('\n--- products ---');
-  const s = randomSuffix();
+  const suffix = randomSuffix();
 
-  const productId = await createEntity(
+  mustStatus(
+    await apiRequest('POST', `${ctx.baseUrl}/products`, ctx.token, {
+      name: `Invalid Product ${suffix}`,
+      manufacturerId: ctx.ids.manufacturerId,
+      activeSubstanceId: ctx.ids.activeSubstanceId,
+      availabilityStatus: 'ON_REQUEST',
+      stockQuantity: 10,
+      reservedQuantity: 1,
+      price: 1200,
+    }),
+    400,
+    'products: ON_REQUEST requires source',
+  );
+
+  ctx.ids.productId = await createEntity(
     ctx,
     'products',
     {
-      name: `Product ${s}`,
-      description: `Product description ${s}`,
+      name: `Smoke Product ${suffix}`,
+      description: 'smoke product',
       manufacturerId: ctx.ids.manufacturerId,
       activeSubstanceId: ctx.ids.activeSubstanceId,
-      productStatusId: ctx.ids.productStatusId,
-      productOrderSourceId: ctx.ids.productOrderSourceId,
-      stockQuantity: 30,
+      availabilityStatus: 'ON_REQUEST',
+      productOrderSourceId: ctx.ids.sourceId,
+      stockQuantity: 40,
       reservedQuantity: 2,
-      price: 18.75,
+      price: 2150.5,
       isActive: true,
     },
     'products: create',
   );
-  ctx.ids.productId = productId;
 
-  requireStatus(
-    await apiRequest(
-      'GET',
-      `${ctx.baseUrl}/products?manufacturerId=${ctx.ids.manufacturerId}&activeSubstanceId=${ctx.ids.activeSubstanceId}&search=Product`,
-      ctx.token,
-    ),
-    200,
-    'products: list with filters',
-  );
+  mustStatus(await apiRequest('GET', `${ctx.baseUrl}/products/${ctx.ids.productId}`, ctx.token), 200, 'products: get by id');
+  mustStatus(await apiRequest('GET', `${ctx.baseUrl}/products?availabilityStatus=ON_REQUEST`, ctx.token), 200, 'products: list by status');
 
-  requireStatus(
-    await apiRequest('PATCH', `${ctx.baseUrl}/products/${productId}`, ctx.token, {
-      reservedQuantity: 3,
-      stockQuantity: 35,
-      price: 19.5,
-    }),
-    200,
-    'products: patch',
-  );
-
-  requireStatus(
-    await apiRequest('PATCH', `${ctx.baseUrl}/products/${productId}`, ctx.token, {
-      stockQuantity: 2,
-      reservedQuantity: 5,
-    }),
+  mustStatus(
+    await apiRequest('PATCH', `${ctx.baseUrl}/products/${ctx.ids.productId}`, ctx.token, { stockQuantity: 1, reservedQuantity: 5 }),
     400,
-    'products: invalid reserved > stock',
+    'products: reserved cannot exceed stock',
   );
+
+  const sourceReset = await apiRequest<{ productOrderSourceId: number | null }>(
+    'PATCH',
+    `${ctx.baseUrl}/products/${ctx.ids.productId}`,
+    ctx.token,
+    {
+      availabilityStatus: 'IN_STOCK',
+      productOrderSourceId: ctx.ids.sourceId,
+    },
+  );
+  mustStatus(sourceReset, 200, 'products: IN_STOCK resets source');
+  if (sourceReset.data?.productOrderSourceId !== null) {
+    throw new Error('products: IN_STOCK expected productOrderSourceId to be null');
+  }
+  logOk('products: source reset to null for IN_STOCK');
 }
 
-async function runOrdersSuite(ctx: TestContext) {
-  console.log('\n--- orders unified save ---');
-  const s = randomSuffix();
-
-  const createOrderRes = await apiRequest<{ id?: number }>('POST', `${ctx.baseUrl}/orders`, ctx.token, {
-    clientId: ctx.ids.clientId,
+async function runOrdersChecks(ctx: Ctx) {
+  console.log('\n--- orders ---');
+  const suffix = randomSuffix();
+  const orderCreate = await apiRequest<{ id?: number }>('POST', `${ctx.baseUrl}/orders`, ctx.token, {
+    clientPhone: `+7708${String(Date.now()).slice(-7)}`,
     countryId: ctx.ids.countryId,
-    cityId: ctx.ids.cityId,
-    address: `Address ${s}`,
-    deliveryCompanyId: ctx.ids.deliveryCompanyId,
-    deliveryPrice: 7,
-    paymentStatusId: ctx.ids.paymentStatusUnpaidId,
-    orderStatusId: ctx.ids.orderStatusNewId,
-    assemblyStatusId: ctx.ids.assemblyStatusId,
+    city: `Алматы-${suffix}`,
+    address: `Smoke address ${suffix}`,
+    deliveryStatus: 'COLLECT_DOVAS',
+    deliveryPrice: 1500,
+    paymentStatus: 'UNPAID',
+    orderStatus: 'ORDER',
     storagePlaceId: ctx.ids.storagePlaceId,
-    description: `Order ${s}`,
-    paidAmount: 5,
+    description: `SMOKE_ORDER_${suffix}`,
+    paidAmount: 0,
     items: [{ productId: ctx.ids.productId, quantity: 2 }],
   });
-  requireStatus(createOrderRes, 201, 'orders: create');
-  const createdOrderId = (createOrderRes.data as { id?: number } | null)?.id;
-  if (!createdOrderId) throw new Error('orders: create returned no id');
-  ctx.orderIds.push(createdOrderId);
+  mustStatus(orderCreate, 201, 'orders: create');
+  ctx.ids.orderId = orderCreate.data?.id ?? 0;
+  if (!ctx.ids.orderId) throw new Error('orders: create returned no id');
+  ctx.created.push({ path: 'orders', id: ctx.ids.orderId });
 
-  requireStatus(
+  mustStatus(await apiRequest('GET', `${ctx.baseUrl}/orders/${ctx.ids.orderId}`, ctx.token), 200, 'orders: get by id');
+  mustStatus(await apiRequest('GET', `${ctx.baseUrl}/orders/stats/summary`, ctx.token), 200, 'orders: stats summary');
+  mustStatus(
     await apiRequest(
       'GET',
-      `${ctx.baseUrl}/orders?clientId=${ctx.ids.clientId}&page=1&pageSize=10&sortBy=createdAt&sortOrder=desc`,
+      `${ctx.baseUrl}/orders?page=1&pageSize=10&orderStatuses=ORDER,DELIVERY_REGISTRATION&city=Алматы`,
       ctx.token,
     ),
     200,
-    'orders: list pagination/sort/filter',
+    'orders: list with orderStatuses csv',
   );
-  requireStatus(
-    await apiRequest('GET', `${ctx.baseUrl}/orders/stats/summary`, ctx.token),
-    200,
-    'orders: stats summary',
-  );
-  requireStatus(
-    await apiRequest('GET', `${ctx.baseUrl}/orders/${createdOrderId}`, ctx.token),
-    200,
-    'orders: get by id',
-  );
-  requireStatus(
-    await apiRequest('GET', `${ctx.baseUrl}/orders/${createdOrderId}/history`, ctx.token),
-    200,
-    'orders: get history',
-  );
-
-  requireStatus(
-    await apiRequest('PATCH', `${ctx.baseUrl}/orders/${createdOrderId}`, ctx.token, {
-      address: `Address upd ${s}`,
-      paidAmount: 10,
-      deliveryPrice: 8,
-      description: `Order upd ${s}`,
-      items: [
-        {
-          productId: ctx.ids.productId,
-          quantity: 3,
-        },
-      ],
-    }),
-    200,
-    'orders: unified patch (fields + items)',
-  );
-  requireStatus(
-    await apiRequest('PATCH', `${ctx.baseUrl}/orders/${createdOrderId}`, ctx.token, {
-      paidAmount: 999999,
-    }),
+  mustStatus(
+    await apiRequest('GET', `${ctx.baseUrl}/orders?orderStatuses[]=ORDER&orderStatuses[]=DELIVERY_REGISTRATION`, ctx.token),
     400,
-    'orders: patch invalid paidAmount > total',
+    'orders: reject orderStatuses[] params',
   );
 
-  requireStatus(
-    await apiRequest('PATCH', `${ctx.baseUrl}/orders/${createdOrderId}`, ctx.token, {
-      orderStatusId: ctx.ids.orderStatusInProgressId,
-      paymentStatusId: ctx.ids.paymentStatusPartiallyPaidId,
-      assemblyStatusId: ctx.ids.assemblyStatusId,
-      responsibleUserId: ctx.ids.currentUserId,
-      storagePlaceId: ctx.ids.storagePlaceId,
-      paidAmount: 12,
-      items: [
-        {
-          productId: ctx.ids.productId,
-          quantity: 2,
-        },
-      ],
+  mustStatus(
+    await apiRequest('PATCH', `${ctx.baseUrl}/orders/${ctx.ids.orderId}`, ctx.token, {
+      orderStatus: 'ASSEMBLY_REQUIRED',
+      deliveryStatus: 'COLLECT_PONY',
+      items: [{ productId: ctx.ids.productId, quantity: 1 }],
+      paidAmount: 500,
     }),
     200,
-    'orders: unified patch for statuses/payment/responsible/storage/items',
+    'orders: patch to ASSEMBLY_REQUIRED',
   );
 
-  requireStatus(
-    await apiRequest('GET', `${ctx.baseUrl}/orders/${createdOrderId}/history`, ctx.token),
+  mustStatus(
+    await apiRequest('PATCH', `${ctx.baseUrl}/orders/${ctx.ids.orderId}`, ctx.token, { items: [] }),
+    400,
+    'orders: patch with empty items rejected',
+  );
+
+  mustStatus(
+    await apiRequest('PATCH', `${ctx.baseUrl}/orders/${ctx.ids.orderId}`, ctx.token, { paidAmount: 999999999 }),
+    400,
+    'orders: paidAmount cannot exceed total',
+  );
+
+  mustStatus(
+    await apiRequest('PATCH', `${ctx.baseUrl}/orders/${ctx.ids.orderId}`, ctx.token, { orderStatus: 'CLOSED' }),
     200,
-    'orders: history after unified saves',
+    'orders: close',
+  );
+
+  mustStatus(
+    await apiRequest('PATCH', `${ctx.baseUrl}/orders/${ctx.ids.orderId}`, ctx.token, { address: `after-close-${suffix}` }),
+    400,
+    'orders: closed order cannot be edited',
   );
 }
 
-async function bootstrapCoreRefs(ctx: TestContext) {
-  const me = await apiRequest<{ id?: number; userId?: number }>('GET', `${ctx.baseUrl}/auth/me`, ctx.token);
-  mustStatus(me, 200, 'auth: me');
-  const meId = (me.data as { id?: number; userId?: number } | null)?.id ?? me.data?.userId;
-  if (!meId) throw new Error('auth/me returned no id');
-  ctx.ids.currentUserId = meId;
-
-  await runDictionaryCrudSuite(ctx, {
-    name: 'client-statuses',
-    path: 'client-statuses',
-    createPayload: (s) => ({ name: `Client status ${s}`, color: colors[0] }),
-    updatePayload: (s) => ({ name: `Client status upd ${s}`, color: colors[1] }),
-    storeIdAs: 'clientStatusId',
-  });
-  await runDictionaryCrudSuite(ctx, {
-    name: 'manufacturers',
-    path: 'manufacturers',
-    createPayload: (s) => ({ name: `Manufacturer ${s}`, isActive: true }),
-    updatePayload: (s) => ({ name: `Manufacturer upd ${s}`, isActive: false }),
-    storeIdAs: 'manufacturerId',
-  });
-  await runDictionaryCrudSuite(ctx, {
-    name: 'active-substances',
-    path: 'active-substances',
-    createPayload: (s) => ({ name: `Substance ${s}` }),
-    updatePayload: (s) => ({ name: `Substance upd ${s}` }),
-    storeIdAs: 'activeSubstanceId',
-  });
-  await runDictionaryCrudSuite(ctx, {
-    name: 'product-statuses',
-    path: 'product-statuses',
-    createPayload: (s) => ({ name: `Product status ${s}`, color: colors[2] }),
-    updatePayload: (s) => ({ name: `Product status upd ${s}`, color: colors[3] }),
-    storeIdAs: 'productStatusId',
-  });
-  await runDictionaryCrudSuite(ctx, {
-    name: 'product-order-sources',
-    path: 'product-order-sources',
-    createPayload: (s) => ({ name: `Order source ${s}`, color: colors[4] }),
-    updatePayload: (s) => ({ name: `Order source upd ${s}`, color: colors[5] }),
-    storeIdAs: 'productOrderSourceId',
-  });
-  await runDictionaryCrudSuite(ctx, {
-    name: 'delivery-companies',
-    path: 'delivery-companies',
-    createPayload: (s) => ({ name: `Delivery company ${s}`, isActive: true }),
-    updatePayload: (s) => ({ name: `Delivery company upd ${s}`, isActive: false }),
-    storeIdAs: 'deliveryCompanyId',
-  });
-  await runDictionaryCrudSuite(ctx, {
-    name: 'delivery-types',
-    path: 'delivery-types',
-    createPayload: (s, c) => ({
-      name: `Delivery type ${s}`,
-      deliveryCompanyId: c.ids.deliveryCompanyId,
-      isActive: true,
-    }),
-    updatePayload: (s) => ({ name: `Delivery type upd ${s}`, isActive: false }),
-    invalidPayload: (s) => ({
-      name: `Delivery type invalid ${s}`,
-      deliveryCompanyId: 999999999,
-      isActive: true,
-    }),
-    invalidStatus: 404,
-  });
-  await runDictionaryCrudSuite(ctx, {
-    name: 'assembly-statuses',
-    path: 'assembly-statuses',
-    createPayload: (s) => ({ name: `Assembly status ${s}`, color: colors[0] }),
-    updatePayload: (s) => ({ name: `Assembly status upd ${s}`, color: colors[1] }),
-    storeIdAs: 'assemblyStatusId',
-  });
-  await runDictionaryCrudSuite(ctx, {
-    name: 'storage-places',
-    path: 'storage-places',
-    createPayload: (s) => ({ name: `Storage place ${s}`, description: `Storage ${s}`, isActive: true }),
-    updatePayload: (s) => ({ name: `Storage place upd ${s}`, description: `Storage upd ${s}`, isActive: false }),
-    storeIdAs: 'storagePlaceId',
-  });
-  await runDictionaryCrudSuite(ctx, {
-    name: 'payment-statuses',
-    path: 'payment-statuses',
-    createPayload: (s) => ({ name: `Payment status ${s}`, color: colors[3] }),
-    updatePayload: (s) => ({ name: `Payment status upd ${s}`, color: colors[4] }),
-  });
-  await runDictionaryCrudSuite(ctx, {
-    name: 'order-statuses',
-    path: 'order-statuses',
-    createPayload: (s) => ({ name: `Order status ${s}`, color: colors[5] }),
-    updatePayload: (s) => ({ name: `Order status upd ${s}`, color: colors[0] }),
-  });
-
-  ctx.ids.paymentStatusUnpaidId = await getSystemStatusIdByCode(ctx, 'payment-statuses', 'UNPAID');
-  ctx.ids.paymentStatusPartiallyPaidId = await getSystemStatusIdByCode(
-    ctx,
-    'payment-statuses',
-    'PARTIALLY_PAID',
-  );
-  ctx.ids.orderStatusNewId = await getSystemStatusIdByCode(ctx, 'order-statuses', 'NEW');
-  ctx.ids.orderStatusInProgressId = await getSystemStatusIdByCode(ctx, 'order-statuses', 'IN_PROGRESS');
-  ctx.ids.orderStatusClosedId = await getSystemStatusIdByCode(ctx, 'order-statuses', 'CLOSED');
-  ctx.ids.orderStatusCancelledId = await getSystemStatusIdByCode(ctx, 'order-statuses', 'CANCELLED');
+async function cleanup(ctx: Ctx) {
+  for (const entity of [...ctx.created].reverse()) {
+    const res = await apiRequest('DELETE', `${ctx.baseUrl}/${entity.path}/${entity.id}`, ctx.token);
+    if (res.status === 200 || res.status === 404) {
+      logOk(`cleanup: ${entity.path}/${entity.id} -> ${res.status}`);
+    } else {
+      logError(`cleanup: ${entity.path}/${entity.id} failed -> ${res.status} (${res.rawText})`);
+    }
+  }
 }
 
 async function main() {
   console.log(`Base URL: ${BASE_URL}`);
-  console.log(`Login user: ${LOGIN_EMAIL}`);
-
   const token = await loginAndGetToken(BASE_URL);
-  logOk('Auth login success');
+  logOk('auth: login success');
 
-  const ctx: TestContext = {
+  const ctx: Ctx = {
     baseUrl: BASE_URL,
     token,
-    ids: {},
-    orderIds: [],
+    ids: {
+      countryId: 0,
+      manufacturerId: 0,
+      activeSubstanceId: 0,
+      sourceId: 0,
+      storagePlaceId: 0,
+      productId: 0,
+      orderId: 0,
+    },
+    created: [],
   };
 
-  await bootstrapCoreRefs(ctx);
-  await runCitiesSuite(ctx);
-  await runClientsSuite(ctx);
-  await runProductsSuite(ctx);
-  await runOrdersSuite(ctx);
+  try {
+    mustStatus(await apiRequest('GET', `${ctx.baseUrl}/auth/me`, ctx.token), 200, 'auth: me');
+    await runRolesChecks(ctx);
+    await runReadOnlyCountriesChecks(ctx);
+    await prepareCoreReferences(ctx);
+    await runProductsChecks(ctx);
+    await runOrdersChecks(ctx);
+  } finally {
+    await cleanup(ctx);
+  }
 
-  console.log('\nAll smoke checks finished.');
   if (failures.length > 0) {
     console.log('\nFailed checks:');
     for (const failure of failures) {
@@ -572,6 +378,8 @@ async function main() {
     }
     throw new Error(`Smoke failed with ${failures.length} check(s)`);
   }
+
+  console.log('\nSmoke finished successfully.');
 }
 
 main().catch((error: unknown) => {

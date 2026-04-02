@@ -13,6 +13,8 @@ import {
 } from '@nestjs/common';
 import { CacheInterceptor, CacheTTL } from '@nestjs/cache-manager';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -36,16 +38,22 @@ export class ProductsController {
   }
 
   @Post()
+  @Roles('admin', 'manager')
+  @UseGuards(RolesGuard)
   create(@Body() dto: CreateProductDto) {
     return this.productsService.create(dto);
   }
 
   @Patch(':id')
+  @Roles('admin', 'manager')
+  @UseGuards(RolesGuard)
   update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateProductDto) {
     return this.productsService.update(id, dto);
   }
 
   @Delete(':id')
+  @Roles('admin', 'manager')
+  @UseGuards(RolesGuard)
   delete(@Param('id', ParseIntPipe) id: number) {
     return this.productsService.delete(id);
   }

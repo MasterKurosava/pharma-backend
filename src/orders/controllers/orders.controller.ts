@@ -24,18 +24,16 @@ export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
   @Get()
-  findAll(@Query() query: OrderQueryDto) {
-    return this.ordersService.findAll(query);
+  findAll(
+    @Query() query: OrderQueryDto,
+    @CurrentUser() user: { userId: number; email: string; role: string },
+  ) {
+    return this.ordersService.findAll(query, user.role);
   }
 
   @Get('stats/summary')
   getSummary(@Query() query: OrdersSummaryQueryDto) {
     return this.ordersService.getSummary(query);
-  }
-
-  @Get(':id/history')
-  getHistory(@Param('id', ParseIntPipe) id: number) {
-    return this.ordersService.getHistory(id);
   }
 
   @Get(':id')
@@ -57,7 +55,7 @@ export class OrdersController {
     @Body() dto: UpdateOrderFullDto,
     @CurrentUser() user: { userId: number; email: string; role: string },
   ) {
-    return this.ordersService.update(id, dto, user.userId);
+    return this.ordersService.update(id, dto, user.userId, user.role);
   }
 
   @Delete(':id')

@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { DeliveryStatusCode, OrderStatusCode, PaymentStatusCode } from '@prisma/client';
+import { IsEnum, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 export class OrderQueryDto {
   @IsOptional()
@@ -7,10 +8,8 @@ export class OrderQueryDto {
   search?: string;
 
   @IsOptional()
-  @Transform(({ value }) => (value === undefined ? value : Number(value)))
-  @IsInt()
-  @Min(1)
-  clientId?: number;
+  @IsString()
+  clientPhone?: string;
 
   @IsOptional()
   @Transform(({ value }) => (value === undefined ? value : Number(value)))
@@ -19,34 +18,33 @@ export class OrderQueryDto {
   countryId?: number;
 
   @IsOptional()
-  @Transform(({ value }) => (value === undefined ? value : Number(value)))
-  @IsInt()
-  @Min(1)
-  cityId?: number;
+  @IsString()
+  city?: string;
 
   @IsOptional()
-  @Transform(({ value }) => (value === undefined ? value : Number(value)))
-  @IsInt()
-  @Min(1)
-  responsibleUserId?: number;
+  @IsEnum(PaymentStatusCode)
+  paymentStatus?: PaymentStatusCode;
 
   @IsOptional()
-  @Transform(({ value }) => (value === undefined ? value : Number(value)))
-  @IsInt()
-  @Min(1)
-  paymentStatusId?: number;
+  @IsEnum(OrderStatusCode)
+  orderStatus?: OrderStatusCode;
 
   @IsOptional()
-  @Transform(({ value }) => (value === undefined ? value : Number(value)))
-  @IsInt()
-  @Min(1)
-  orderStatusId?: number;
-
-  @IsOptional()
-  @Transform(({ value }) => (value === undefined ? value : Number(value)))
-  @IsInt()
-  @Min(1)
-  assemblyStatusId?: number;
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') return undefined;
+    if (Array.isArray(value)) {
+      return value
+        .flatMap((entry) => String(entry).split(','))
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    }
+    return String(value)
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  })
+  @IsEnum(OrderStatusCode, { each: true })
+  orderStatuses?: OrderStatusCode[];
 
   @IsOptional()
   @Transform(({ value }) => (value === undefined ? value : Number(value)))
@@ -55,10 +53,8 @@ export class OrderQueryDto {
   storagePlaceId?: number;
 
   @IsOptional()
-  @Transform(({ value }) => (value === undefined ? value : Number(value)))
-  @IsInt()
-  @Min(1)
-  deliveryCompanyId?: number;
+  @IsEnum(DeliveryStatusCode)
+  deliveryStatus?: DeliveryStatusCode;
 
   @IsOptional()
   @IsString()

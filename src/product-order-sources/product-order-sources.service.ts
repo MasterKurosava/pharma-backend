@@ -11,6 +11,7 @@ export class ProductOrderSourcesService {
   async findAll(query: ProductOrderSourceQueryDto) {
     const where = {
       deletedAt: null,
+      ...(typeof query.isActive === 'boolean' ? { isActive: query.isActive } : { isActive: true }),
       ...(query.search
         ? {
             OR: [
@@ -48,6 +49,7 @@ export class ProductOrderSourcesService {
       data: {
         name: dto.name.trim(),
         ...(dto.color !== undefined ? { color: dto.color.trim() } : {}),
+        isActive: dto.isActive ?? true,
       },
     });
   }
@@ -60,6 +62,7 @@ export class ProductOrderSourcesService {
       data: {
         ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
         ...(dto.color !== undefined ? { color: dto.color.trim() } : {}),
+        ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
       },
     });
   }
@@ -68,7 +71,7 @@ export class ProductOrderSourcesService {
     await this.findById(id);
     return this.prisma.productOrderSource.update({
       where: { id },
-      data: { deletedAt: new Date() },
+      data: { isActive: false, deletedAt: new Date() },
     });
   }
 }

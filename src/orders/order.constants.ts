@@ -3,16 +3,8 @@ import { Prisma } from '@prisma/client';
 export type DbClient = Prisma.TransactionClient;
 
 export const ORDER_FULL_INCLUDE = Prisma.validator<Prisma.OrderInclude>()({
-  client: true,
   country: true,
-  city: true,
-  paymentStatus: true,
-  orderStatus: true,
-  assemblyStatus: true,
   storagePlace: true,
-  responsibleUser: true,
-  deliveryCompany: true,
-  deliveryType: true,
   items: {
     include: {
       product: true,

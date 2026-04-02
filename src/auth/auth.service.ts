@@ -16,12 +16,12 @@ import {
   
     async login(dto: LoginDto) {
       const user = await this.prisma.user.findUnique({
-        where: { email: dto.email },
+        where: { login: dto.login },
         include: { role: true },
       });
   
       if (!user || user.deletedAt || !user.isActive) {
-        throw new UnauthorizedException('Неверный email или пароль');
+        throw new UnauthorizedException('Неверный логин или пароль');
       }
   
       const isPasswordValid = await bcrypt.compare(
@@ -30,12 +30,12 @@ import {
       );
   
       if (!isPasswordValid) {
-        throw new UnauthorizedException('Неверный email или пароль');
+        throw new UnauthorizedException('Неверный логин или пароль');
       }
   
       const payload = {
         sub: user.id,
-        email: user.email,
+        login: user.login,
         role: user.role.code,
       };
   
@@ -43,8 +43,10 @@ import {
         accessToken: await this.jwtService.signAsync(payload),
         user: {
           id: user.id,
+          login: user.login,
           email: user.email,
-          name: user.name,
+          firstName: user.firstName,
+          lastName: user.lastName,
           role: user.role,
         },
       };

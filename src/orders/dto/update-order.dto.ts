@@ -1,22 +1,30 @@
-import { IsInt, IsNumber, IsOptional, IsString, Length, Min, ValidateIf } from 'class-validator';
+import { DeliveryStatusCode, OrderStatusCode, PaymentStatusCode } from '@prisma/client';
+import { IsEnum, IsInt, IsNumber, IsOptional, IsString, Length, Min, ValidateIf } from 'class-validator';
 
 export class UpdateOrderDto {
+  @IsOptional()
+  @IsString()
+  @Length(3, 50)
+  clientPhone?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  countryId?: number;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 120)
+  city?: string;
+
   @IsOptional()
   @IsString()
   @Length(1, 1000)
   address?: string;
 
   @IsOptional()
-  @ValidateIf((_, value) => value !== null)
-  @IsInt()
-  @Min(1)
-  deliveryCompanyId?: number | null;
-
-  @IsOptional()
-  @ValidateIf((_, value) => value !== null)
-  @IsInt()
-  @Min(1)
-  deliveryTypeId?: number | null;
+  @IsEnum(DeliveryStatusCode)
+  deliveryStatus?: DeliveryStatusCode;
 
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
@@ -24,32 +32,18 @@ export class UpdateOrderDto {
   deliveryPrice?: number;
 
   @IsOptional()
-  @IsInt()
-  @Min(1)
-  paymentStatusId?: number;
+  @IsEnum(PaymentStatusCode)
+  paymentStatus?: PaymentStatusCode;
 
   @IsOptional()
-  @IsInt()
-  @Min(1)
-  orderStatusId?: number;
-
-  @IsOptional()
-  @ValidateIf((_, value) => value !== null)
-  @IsInt()
-  @Min(1)
-  assemblyStatusId?: number | null;
+  @IsEnum(OrderStatusCode)
+  orderStatus?: OrderStatusCode;
 
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
   @IsInt()
   @Min(1)
   storagePlaceId?: number | null;
-
-  @IsOptional()
-  @ValidateIf((_, value) => value !== null)
-  @IsInt()
-  @Min(1)
-  responsibleUserId?: number | null;
 
   @IsOptional()
   @ValidateIf((_, value) => value !== null)

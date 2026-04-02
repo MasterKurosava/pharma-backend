@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsEnum,
   IsInt,
   IsNumber,
   IsOptional,
@@ -10,62 +11,44 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { DeliveryStatusCode, OrderStatusCode, PaymentStatusCode } from '@prisma/client';
 import { CreateOrderItemDto } from './items/create-order-item.dto';
 
 export class CreateOrderDto {
-  @IsInt()
-  @Min(1)
-  clientId!: number;
+  @IsString()
+  @Length(3, 50)
+  clientPhone!: string;
 
   @IsInt()
   @Min(1)
   countryId!: number;
 
-  @IsInt()
-  @Min(1)
-  cityId!: number;
+  @IsString()
+  @Length(1, 120)
+  city!: string;
 
   @IsString()
   @Length(1, 1000)
   address!: string;
 
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  deliveryCompanyId?: number;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  deliveryTypeId?: number;
+  @IsEnum(DeliveryStatusCode)
+  deliveryStatus!: DeliveryStatusCode;
 
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   deliveryPrice?: number;
 
-  @IsInt()
-  @Min(1)
-  paymentStatusId!: number;
+  @IsEnum(PaymentStatusCode)
+  paymentStatus!: PaymentStatusCode;
 
-  @IsInt()
-  @Min(1)
-  orderStatusId!: number;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  assemblyStatusId?: number;
+  @IsEnum(OrderStatusCode)
+  orderStatus!: OrderStatusCode;
 
   @IsOptional()
   @IsInt()
   @Min(1)
   storagePlaceId?: number;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  responsibleUserId?: number;
 
   @IsOptional()
   @IsString()

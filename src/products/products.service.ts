@@ -1,10 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { ProductAvailabilityStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { PrismaErrorMapperService } from '../common/prisma/prisma-error-mapper.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductQueryDto } from './dto/product-query.dto';
 import { ProductPrecheckService } from './product-precheck.service';
+import { PRODUCT_AVAILABILITY_LABELS } from './constants/product-status.constants';
 
 @Injectable()
 export class ProductsService {
@@ -19,7 +21,7 @@ export class ProductsService {
       isActive: true,
       ...(query.manufacturerId !== undefined ? { manufacturerId: query.manufacturerId } : {}),
       ...(query.activeSubstanceId !== undefined ? { activeSubstanceId: query.activeSubstanceId } : {}),
-      ...(query.productStatusId !== undefined ? { productStatusId: query.productStatusId } : {}),
+      ...(query.availabilityStatus !== undefined ? { availabilityStatus: query.availabilityStatus } : {}),
       ...(query.productOrderSourceId !== undefined
         ? { productOrderSourceId: query.productOrderSourceId }
         : {}),
@@ -42,7 +44,6 @@ export class ProductsService {
       include: {
         manufacturer: true,
         activeSubstance: true,
-        status: true,
         orderSource: true,
       },
       orderBy: [{ name: 'asc' }],
@@ -77,7 +78,6 @@ export class ProductsService {
       include: {
         manufacturer: true,
         activeSubstance: true,
-        status: true,
         orderSource: true,
       },
     });
@@ -91,6 +91,7 @@ export class ProductsService {
 
   async create(dto: CreateProductDto) {
     await this.precheck.loadCreateContext(dto, this.prisma);
+    this.precheck.validateOrderSourceRules(dto.availabilityStatus, dto.productOrderSourceId);
     this.precheck.validateQuantities(dto.stockQuantity, dto.reservedQuantity);
 
     try {
@@ -101,10 +102,8 @@ export class ProductsService {
           ...(dto.imageUrl !== undefined ? { imageUrl: dto.imageUrl.trim() } : {}),
           manufacturerId: dto.manufacturerId,
           activeSubstanceId: dto.activeSubstanceId,
-          productStatusId: dto.productStatusId,
-          ...(dto.productOrderSourceId !== undefined
-            ? { productOrderSourceId: dto.productOrderSourceId }
-            : {}),
+          availabilityStatus: dto.availabilityStatus,
+          ...(dto.productOrderSourceId !== undefined ? { productOrderSourceId: dto.productOrderSourceId } : { productOrderSourceId: null }),
           stockQuantity: dto.stockQuantity,
           reservedQuantity: dto.reservedQuantity,
           price: dto.price,
@@ -113,7 +112,6 @@ export class ProductsService {
         include: {
           manufacturer: true,
           activeSubstance: true,
-          status: true,
           orderSource: true,
         },
       });
@@ -130,7 +128,6 @@ export class ProductsService {
       include: {
         manufacturer: true,
         activeSubstance: true,
-        status: true,
         orderSource: true,
       },
     });
@@ -140,6 +137,17 @@ export class ProductsService {
     }
 
     await this.precheck.loadUpdateContext(dto, this.prisma);
+
+    const finalStatus = dto.availabilityStatus ?? existing.availabilityStatus;
+
+    const finalOrderSourceId =
+      finalStatus !== ProductAvailabilityStatus.ON_REQUEST
+        ? undefined
+        : dto.productOrderSourceId === undefined
+          ? existing.productOrderSourceId ?? undefined
+          : dto.productOrderSourceId;
+
+    this.precheck.validateOrderSourceRules(finalStatus, finalOrderSourceId);
 
     const finalStockQuantity = dto.stockQuantity ?? existing.stockQuantity;
     const finalReservedQuantity = dto.reservedQuantity ?? existing.reservedQuantity;
@@ -154,10 +162,12 @@ export class ProductsService {
           ...(dto.imageUrl !== undefined ? { imageUrl: dto.imageUrl.trim() } : {}),
           ...(dto.manufacturerId !== undefined ? { manufacturerId: dto.manufacturerId } : {}),
           ...(dto.activeSubstanceId !== undefined ? { activeSubstanceId: dto.activeSubstanceId } : {}),
-          ...(dto.productStatusId !== undefined ? { productStatusId: dto.productStatusId } : {}),
-          ...(dto.productOrderSourceId !== undefined
-            ? { productOrderSourceId: dto.productOrderSourceId }
-            : {}),
+          ...(dto.availabilityStatus !== undefined ? { availabilityStatus: finalStatus } : {}),
+          ...(finalStatus !== ProductAvailabilityStatus.ON_REQUEST
+            ? { productOrderSourceId: null }
+            : dto.productOrderSourceId !== undefined
+              ? { productOrderSourceId: dto.productOrderSourceId }
+              : {}),
           ...(dto.stockQuantity !== undefined ? { stockQuantity: dto.stockQuantity } : {}),
           ...(dto.reservedQuantity !== undefined ? { reservedQuantity: dto.reservedQuantity } : {}),
           ...(dto.price !== undefined ? { price: dto.price } : {}),
@@ -166,7 +176,6 @@ export class ProductsService {
         include: {
           manufacturer: true,
           activeSubstance: true,
-          status: true,
           orderSource: true,
         },
       });
@@ -177,9 +186,10 @@ export class ProductsService {
     }
   }
 
-  private mapProduct<T extends { stockQuantity: number; reservedQuantity: number }>(product: T) {
+  private mapProduct<T extends { stockQuantity: number; reservedQuantity: number; availabilityStatus: ProductAvailabilityStatus }>(product: T) {
     return {
       ...product,
+      availabilityStatusLabel: PRODUCT_AVAILABILITY_LABELS[product.availabilityStatus],
       availableQuantity: product.stockQuantity - product.reservedQuantity,
     };
   }
@@ -194,7 +204,6 @@ export class ProductsService {
         include: {
           manufacturer: true,
           activeSubstance: true,
-          status: true,
           orderSource: true,
         },
       });

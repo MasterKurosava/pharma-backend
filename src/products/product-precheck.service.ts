@@ -2,13 +2,14 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { EntityExistenceService } from '../common/prechecks/entity-existence.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { ProductAvailabilityStatus } from '@prisma/client';
 
 @Injectable()
 export class ProductPrecheckService {
   constructor(private readonly existence: EntityExistenceService) {}
 
   async loadCreateContext(dto: CreateProductDto, db: any) {
-    const [manufacturer, activeSubstance, productStatus, orderSource] = await Promise.all([
+    const [manufacturer, activeSubstance, orderSource] = await Promise.all([
       this.existence.getRequiredById('manufacturer', dto.manufacturerId, 'Производитель не найден', db),
       this.existence.getRequiredById(
         'activeSubstance',
@@ -16,7 +17,6 @@ export class ProductPrecheckService {
         'Действующее вещество не найдено',
         db,
       ),
-      this.existence.getRequiredById('productStatus', dto.productStatusId, 'Статус товара не найден', db),
       dto.productOrderSourceId !== undefined
         ? this.existence.getRequiredById(
             'productOrderSource',
@@ -27,7 +27,7 @@ export class ProductPrecheckService {
         : Promise.resolve(null),
     ]);
 
-    return { manufacturer, activeSubstance, productStatus, orderSource };
+    return { manufacturer, activeSubstance, orderSource };
   }
 
   async loadUpdateContext(dto: UpdateProductDto, db: any) {
@@ -48,11 +48,6 @@ export class ProductPrecheckService {
         ),
       );
     }
-    if (dto.productStatusId !== undefined) {
-      checks.push(
-        this.existence.ensureRequiredById('productStatus', dto.productStatusId, 'Статус товара не найден', db),
-      );
-    }
     if (dto.productOrderSourceId !== undefined) {
       checks.push(
         this.existence.ensureRequiredById(
@@ -70,6 +65,16 @@ export class ProductPrecheckService {
   validateQuantities(stockQuantity: number, reservedQuantity: number) {
     if (reservedQuantity > stockQuantity) {
       throw new BadRequestException('Зарезервированное количество не может быть больше остатка');
+    }
+  }
+
+  validateOrderSourceRules(status: ProductAvailabilityStatus, productOrderSourceId: number | undefined) {
+    if (status === ProductAvailabilityStatus.ON_REQUEST && productOrderSourceId === undefined) {
+      throw new BadRequestException('Источник препарата обязателен для статуса "На заказ"');
+    }
+
+    if (status !== ProductAvailabilityStatus.ON_REQUEST && productOrderSourceId !== undefined) {
+      throw new BadRequestException('Источник препарата не должен быть указан, если препарат не "На заказ"');
     }
   }
 }
