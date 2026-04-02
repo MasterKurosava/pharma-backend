@@ -17,6 +17,7 @@ import { CreateOrderDto } from '../dto/create-order.dto';
 import { UpdateOrderFullDto } from '../dto/update-order-full.dto';
 import { OrderQueryDto } from '../dto/order-query.dto';
 import { OrdersSummaryQueryDto } from '../dto/orders-summary-query.dto';
+import { UpdateOrdersBatchStatusDto } from '../dto/update-orders-batch-status.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('orders')
@@ -47,6 +48,14 @@ export class OrdersController {
     @CurrentUser() user: { userId: number; email: string; role: string },
   ) {
     return this.ordersService.create(dto, user.userId);
+  }
+
+  @Patch('batch/status')
+  updateBatchStatuses(
+    @Body() dto: UpdateOrdersBatchStatusDto,
+    @CurrentUser() user: { userId: number; email: string; role: string },
+  ) {
+    return this.ordersService.updateBatchStatuses(dto, user.role);
   }
 
   @Patch(':id')

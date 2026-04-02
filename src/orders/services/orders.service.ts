@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { OrderStatusCode, Prisma } from '@prisma/client';
+import { DeliveryStatusCode, OrderStatusCode, PaymentStatusCode, Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateOrderDto } from '../dto/create-order.dto';
@@ -12,6 +12,7 @@ import { ORDER_FULL_INCLUDE } from '../order.constants';
 import { ORDER_FILTER_QUERY_MAP } from '../constants/order-access.constants';
 import { OrdersSummaryQueryDto } from '../dto/orders-summary-query.dto';
 import { SaveOrderItemDto } from '../dto/items/save-order-item.dto';
+import { UpdateOrdersBatchStatusDto } from '../dto/update-orders-batch-status.dto';
 import { AccessPolicyService } from '../../common/access/access-policy.service';
 import { OrderFilterKey, OrderUpdateFieldKey } from '../../common/access/access-policy.types';
 import { PRODUCT_AVAILABILITY_LABELS } from '../../products/constants/product-status.constants';
@@ -312,6 +313,40 @@ export class OrdersService {
         return id;
       }, { timeout: 15000 })
       .catch((error) => this.prismaErrorMapper.rethrow(error));
+  }
+
+  async updateBatchStatuses(dto: UpdateOrdersBatchStatusDto, roleCode: string) {
+    const policy = await this.accessPolicy.getAccessPolicy(roleCode);
+    const allowed = new Set<OrderUpdateFieldKey>(policy.orders.editableFields);
+
+    const patchEntries = [
+      ['orderStatus', dto.orderStatus],
+      ['deliveryStatus', dto.deliveryStatus],
+      ['paymentStatus', dto.paymentStatus],
+    ].filter(([, value]) => value !== undefined) as Array<
+      ['orderStatus' | 'deliveryStatus' | 'paymentStatus', OrderStatusCode | DeliveryStatusCode | PaymentStatusCode]
+    >;
+
+    if (patchEntries.length !== 1) {
+      throw new BadRequestException('Нужно передать ровно одно поле статуса для batch-обновления');
+    }
+
+    const [field, value] = patchEntries[0];
+    if (!allowed.has(field)) {
+      throw new ForbiddenException(`Недостаточно прав для изменения поля: ${field}`);
+    }
+
+    const result = await this.prisma.order.updateMany({
+      where: {
+        id: { in: dto.ids },
+        orderStatus: { not: OrderStatusCode.CLOSED },
+      },
+      data: {
+        [field]: value,
+      } as Prisma.OrderUpdateManyMutationInput,
+    });
+
+    return { updatedCount: result.count };
   }
 
   private calculateOrderTotals(

@@ -21,7 +21,7 @@ type Ctx = {
   created: Array<{ path: string; id: number }>;
 };
 
-const BASE_URL = process.env.API_BASE_URL ?? 'http://localhost:3000/api';
+const BASE_URL = process.env.API_BASE_URL;
 const LOGIN_EMAIL = process.env.TEST_ADMIN_EMAIL ?? 'admin@example.com';
 const LOGIN_PASSWORD = process.env.TEST_ADMIN_PASSWORD ?? 'admin123';
 const failures: string[] = [];
