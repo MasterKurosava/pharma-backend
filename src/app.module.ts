@@ -16,6 +16,7 @@ import { PrechecksModule } from './common/prechecks/prechecks.module';
 import { PrismaCommonModule } from './common/prisma/prisma-common.module';
 import { RolesGuard } from './common/guards/roles.guard';
 import { AccessPolicyService } from './common/access/access-policy.service';
+import { HealthController } from './health.controller';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { AccessPolicyService } from './common/access/access-policy.service';
     ProductsModule,
     OrdersModule,
   ],
+  controllers: [HealthController],
   providers: [RolesGuard, AccessPolicyService],
 })
 export class AppModule {}

@@ -7,8 +7,9 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build",
+    "postinstall": "prisma generate",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
-    "start": "nest start",
+    "start": "node dist/main",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
@@ -22,6 +23,9 @@
   "prisma": {
     "schema": "prisma/schema.prisma",
     "seed": "ts-node prisma/seed.ts"
+  },
+  "engines": {
+    "node": "18.x"
   },
   "dependencies": {
     "@nestjs/cache-manager": "^3.0.1",
