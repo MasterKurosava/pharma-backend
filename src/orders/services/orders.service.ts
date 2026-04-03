@@ -268,7 +268,6 @@ export class OrdersService {
 
     return this.prisma.$transaction(async (tx) => {
       const currentOrder = await this.loadOrderFullOrThrow(tx, id);
-      this.assertCanEditOrder(currentOrder.orderStatus);
       await this.precheck.loadUpdateContext(sanitizedDto, currentOrder, tx);
       let itemsForTotals = currentOrder.items.map((item) => ({ lineTotal: item.lineTotal.toString() }));
 
@@ -416,15 +415,19 @@ export class OrdersService {
     }
 
     const productIds = [...new Set(items.map((item) => item.productId))];
+    const allTouchedProductIds = [...new Set([...productIds, ...order.items.map((item) => item.productId)])];
+
+    await this.reconcileProductReserves(tx, allTouchedProductIds);
+
     const products = await tx.product.findMany({
-      where: { id: { in: productIds } },
+      where: { id: { in: allTouchedProductIds } },
       include: {
         manufacturer: true,
         activeSubstance: true,
         orderSource: true,
       },
     });
-    if (products.length !== productIds.length) {
+    if (products.length !== allTouchedProductIds.length) {
       throw new NotFoundException('Один или несколько товаров не найдены');
     }
     const productById = new Map(products.map((p) => [p.id, p]));
@@ -555,6 +558,35 @@ export class OrdersService {
     }
 
     return desiredRows.map((row) => ({ lineTotal: row.lineTotal }));
+  }
+
+  private async reconcileProductReserves(tx: Prisma.TransactionClient, productIds: number[]) {
+    if (productIds.length === 0) return;
+
+    const [products, grouped] = await Promise.all([
+      tx.product.findMany({
+        where: { id: { in: productIds } },
+        select: { id: true, reservedQuantity: true },
+      }),
+      tx.orderItem.groupBy({
+        by: ['productId'],
+        where: { productId: { in: productIds } },
+        _sum: { quantity: true },
+      }),
+    ]);
+
+    const expectedByProduct = new Map<number, number>(
+      grouped.map((entry) => [entry.productId, Number(entry._sum.quantity ?? 0)]),
+    );
+
+    for (const product of products) {
+      const expected = expectedByProduct.get(product.id) ?? 0;
+      if (product.reservedQuantity === expected) continue;
+      await tx.product.update({
+        where: { id: product.id },
+        data: { reservedQuantity: expected },
+      });
+    }
   }
 
   private toMoney(value: Prisma.Decimal | Decimal | number | string) {
@@ -698,12 +730,6 @@ export class OrdersService {
     }
 
     return order;
-  }
-
-  private assertCanEditOrder(status: OrderStatusCode) {
-    if (status === OrderStatusCode.CLOSED) {
-      throw new BadRequestException('Заказ в финальном статусе и недоступен для редактирования');
-    }
   }
 
   private applyOrderFilterPolicy(
