@@ -7,23 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum OrderStatusCode {
-  ORDER
-  DELIVERY_REGISTRATION
-  ADDRESS_REQUIRED
-  ASSEMBLY_REQUIRED
-  ASSEMBLED_WRITTEN_OFF
-  PACKED
-  CLOSED
-}
-
-enum DeliveryStatusCode {
-  COLLECT_DOVAS
-  COLLECT_PONY
-  COLLECT_YANDEX
-  COLLECT_PICKUP
-}
-
 enum PaymentStatusCode {
   UNPAID
   PREPAID_50
@@ -36,13 +19,29 @@ enum ProductAvailabilityStatus {
   IN_STOCK
 }
 
+enum OrderStatusType {
+  ACTION
+  STATE
+  ASSEMBLY
+}
+
+enum OrderTableGroup {
+  REQUESTS
+  PICKUP
+  ALMATY_DELIVERY
+  RK_DELIVERY
+  ARCHIVE
+}
+
 model Role {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique
-  code      String   @unique
-  isSystem  Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                     Int               @id @default(autoincrement())
+  name                   String            @unique
+  code                   String            @unique
+  isSystem               Boolean           @default(false)
+  allowedRoutes          String[]          @default([])
+  allowedOrderTableGroups OrderTableGroup[] @default([])
+  createdAt              DateTime          @default(now())
+  updatedAt              DateTime          @updatedAt
 
   users User[]
 }
@@ -68,31 +67,14 @@ model User {
   @@index([roleId])
 }
 
-model Country {
-  id        Int      @id @default(autoincrement())
-  code      String?  @unique
-  name      String
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  manufacturers  Manufacturer[]
-  orders         Order[]
-}
-
 model Manufacturer {
   id        Int      @id @default(autoincrement())
   name      String
-  countryId Int?
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  country Country? @relation(fields: [countryId], references: [id])
-
   products Product[]
-
-  @@index([countryId])
 }
 
 model ActiveSubstance {
@@ -137,7 +119,7 @@ model Product {
   activeSubstance ActiveSubstance @relation(fields: [activeSubstanceId], references: [id])
   orderSource ProductOrderSource? @relation(fields: [productOrderSourceId], references: [id])
 
-  items OrderItem[]
+  orders Order[]
   stockMovements ProductStockMovement[]
 
   @@index([manufacturerId])
@@ -178,55 +160,88 @@ model StoragePlace {
   orders Order[]
 }
 
-model Order {
-  id                  Int      @id @default(autoincrement())
-  orderDate           DateTime @default(now())
-  clientPhone         String
-  countryId           Int
-  city                String
-  address             String
-  deliveryStatus      DeliveryStatusCode @default(COLLECT_DOVAS)
-  deliveryPrice       Decimal  @default(0) @db.Decimal(10, 2)
-  itemsTotalPrice     Decimal  @default(0) @db.Decimal(10, 2)
-  totalPrice          Decimal  @default(0) @db.Decimal(10, 2)
-  paidAmount          Decimal  @default(0) @db.Decimal(10, 2)
-  remainingAmount     Decimal  @default(0) @db.Decimal(10, 2)
-  paymentStatus       PaymentStatusCode @default(UNPAID)
-  orderStatus         OrderStatusCode   @default(ORDER)
-  storagePlaceId      Int?
-  description         String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+model OrderStatusConfig {
+  id                    Int             @id @default(autoincrement())
+  code                  String          @unique
+  type                  OrderStatusType
+  name                  String
+  color                 String?
+  tableGroup            OrderTableGroup?
+  reserveOnSet          Boolean         @default(false)
+  writeOffOnSet         Boolean         @default(false)
+  setAssemblyDateOnSet  Boolean         @default(false)
+  isActive              Boolean         @default(true)
+  sortOrder             Int             @default(0)
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
 
-  country         Country          @relation(fields: [countryId], references: [id])
-  storagePlace    StoragePlace?    @relation(fields: [storagePlaceId], references: [id])
+  actionOrders Order[] @relation("OrderActionStatus")
+  stateOrders  Order[] @relation("OrderStateStatus")
 
-  items OrderItem[]
-  stockMovements ProductStockMovement[]
-
-  @@index([countryId])
-  @@index([city])
-  @@index([storagePlaceId])
+  @@index([type, isActive])
+  @@index([tableGroup, isActive])
 }
 
-model OrderItem {
-  id                         Int      @id @default(autoincrement())
-  orderId                    Int
-  productId                  Int
-  productNameSnapshot        String
-  productStatusNameSnapshot  String
-  orderSourceNameSnapshot    String?
-  manufacturerNameSnapshot   String
+model AssemblyStatus {
+  id        Int      @id @default(autoincrement())
+  code      String   @unique
+  name      String
+  color     String?
+  isActive  Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orders Order[]
+
+  @@index([isActive, sortOrder])
+}
+
+model Order {
+  id                          Int                @id @default(autoincrement())
+  orderDate                   DateTime           @default(now())
+  clientPhone                 String
+  clientFullName              String?
+  city                        String?
+  address                     String?
+  deliveryPrice               Decimal            @default(0) @db.Decimal(10, 2)
+  itemsTotalPrice             Decimal            @default(0) @db.Decimal(10, 2)
+  totalPrice                  Decimal            @default(0) @db.Decimal(10, 2)
+  remainingAmount             Decimal            @default(0) @db.Decimal(10, 2)
+  paymentStatus               PaymentStatusCode  @default(UNPAID)
+  prepaymentDate              DateTime?
+  paymentDate                 DateTime?
+  assemblyDate                DateTime?
+  actionStatusCode            String
+  stateStatusCode             String
+  assemblyStatusCode          String?
+  storagePlaceId              Int?
+  orderStorage                String?
+  description                 String?
+  productId                   Int
+  productNameSnapshot         String
+  productStatusNameSnapshot   String
+  orderSourceNameSnapshot     String?
+  manufacturerNameSnapshot    String
   activeSubstanceNameSnapshot String
-  quantity                   Int
-  pricePerItem               Decimal  @db.Decimal(10, 2)
-  lineTotal                  Decimal  @db.Decimal(10, 2)
-  createdAt                  DateTime @default(now())
-  updatedAt                  DateTime @updatedAt
+  productPrice                Decimal            @db.Decimal(10, 2)
+  quantity                    Int
+  createdAt                   DateTime           @default(now())
+  updatedAt                   DateTime           @updatedAt
 
-  order   Order   @relation(fields: [orderId], references: [id])
-  product Product @relation(fields: [productId], references: [id])
+  product      Product           @relation(fields: [productId], references: [id])
+  actionStatus OrderStatusConfig @relation("OrderActionStatus", fields: [actionStatusCode], references: [code])
+  stateStatus  OrderStatusConfig @relation("OrderStateStatus", fields: [stateStatusCode], references: [code])
+  assemblyStatus AssemblyStatus?  @relation(fields: [assemblyStatusCode], references: [code])
+  storagePlace StoragePlace?     @relation(fields: [storagePlaceId], references: [id])
 
-  @@index([orderId])
+  stockMovements ProductStockMovement[]
+
+  @@index([city])
+  @@index([storagePlaceId])
+  @@index([paymentStatus])
+  @@index([actionStatusCode])
+  @@index([stateStatusCode])
+  @@index([assemblyStatusCode])
   @@index([productId])
 }

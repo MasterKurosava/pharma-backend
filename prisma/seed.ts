@@ -1,63 +1,129 @@
-import {
-  DeliveryStatusCode,
-  OrderStatusCode,
-  PaymentStatusCode,
-  Prisma,
-  PrismaClient,
-  ProductAvailabilityStatus,
-} from '@prisma/client';
+import { OrderStatusType, OrderTableGroup, PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+const ACTION_STATUSES = [
+  { code: 'ACTION_IN_STOCK', name: 'И.Есть', color: '#2563eb', reserveOnSet: true, writeOffOnSet: false, setAssemblyDateOnSet: false },
+  { code: 'ACTION_OUT_OF_STOCK', name: 'И.Нет', color: '#dc2626', reserveOnSet: false, writeOffOnSet: false, setAssemblyDateOnSet: false },
+  { code: 'ACTION_MOSCOW', name: 'И.Мос', color: '#7c3aed', reserveOnSet: false, writeOffOnSet: false, setAssemblyDateOnSet: false },
+  { code: 'ACTION_TURKEY', name: 'И.Тур', color: '#f59e0b', reserveOnSet: false, writeOffOnSet: false, setAssemblyDateOnSet: false },
+  { code: 'ACTION_TC', name: 'И.ТС', color: '#0ea5e9', reserveOnSet: false, writeOffOnSet: false, setAssemblyDateOnSet: false },
+  { code: 'ACTION_WAREHOUSE', name: 'И.Склад', color: '#0891b2', reserveOnSet: true, writeOffOnSet: false, setAssemblyDateOnSet: false },
+  { code: 'ACTION_INDIA', name: 'И.Индия', color: '#16a34a', reserveOnSet: false, writeOffOnSet: false, setAssemblyDateOnSet: false },
+  { code: 'ACTION_PLACE_ORDER', name: 'Оформите заказ', color: '#64748b', reserveOnSet: false, writeOffOnSet: false, setAssemblyDateOnSet: false },
+  { code: 'ACTION_ORDER_MOSCOW', name: 'Закажите Мос', color: '#7c3aed', reserveOnSet: false, writeOffOnSet: false, setAssemblyDateOnSet: false },
+  { code: 'ACTION_ORDER_TC', name: 'Закажите ТС', color: '#0ea5e9', reserveOnSet: false, writeOffOnSet: false, setAssemblyDateOnSet: false },
+  { code: 'ACTION_ORDER_TURKEY', name: 'Закажите Тур', color: '#f59e0b', reserveOnSet: false, writeOffOnSet: false, setAssemblyDateOnSet: false },
+  { code: 'ACTION_ORDER_INDIA', name: 'Закажите Инд', color: '#16a34a', reserveOnSet: false, writeOffOnSet: false, setAssemblyDateOnSet: false },
+  { code: 'ACTION_ORDER_WAREHOUSE', name: 'Закажите Склад', color: '#0891b2', reserveOnSet: false, writeOffOnSet: false, setAssemblyDateOnSet: false },
+  { code: 'ACTION_COLLECT_PICKUP', name: 'Соберите Самовывоз', color: '#2563eb', reserveOnSet: true, writeOffOnSet: false, setAssemblyDateOnSet: true },
+  { code: 'ACTION_SELECT_YANDEX', name: 'Выберите Яндекс', color: '#f59e0b', reserveOnSet: false, writeOffOnSet: false, setAssemblyDateOnSet: false },
+  { code: 'ACTION_CALLED_YANDEX', name: 'Вызвала Яндекс', color: '#d97706', reserveOnSet: false, writeOffOnSet: false, setAssemblyDateOnSet: false },
+  { code: 'ACTION_COLLECT_ALMATY', name: 'Соберите Алматы', color: '#0ea5e9', reserveOnSet: true, writeOffOnSet: false, setAssemblyDateOnSet: true },
+  { code: 'ACTION_COLLECT_PONY', name: 'Соберите Пони', color: '#8b5cf6', reserveOnSet: true, writeOffOnSet: false, setAssemblyDateOnSet: true },
+  { code: 'ACTION_COLLECT_DOVAS', name: 'Соберите ДоВас', color: '#2563eb', reserveOnSet: true, writeOffOnSet: false, setAssemblyDateOnSet: true },
+  { code: 'ACTION_COLLECT_INDRIVER', name: 'Соберите для Индрайвера', color: '#14b8a6', reserveOnSet: true, writeOffOnSet: false, setAssemblyDateOnSet: true },
+  { code: 'ACTION_RECEIVED_REPLY', name: 'Поступило ответьте', color: '#64748b', reserveOnSet: false, writeOffOnSet: false, setAssemblyDateOnSet: false },
+  { code: 'ACTION_NOTIFY_OTHER', name: 'Оповестите другое', color: '#64748b', reserveOnSet: false, writeOffOnSet: false, setAssemblyDateOnSet: false },
+] as const;
+
+const STATE_STATUSES = [
+  { code: 'STATE_OFFER_ANALOGS', name: 'Предложите аналоги', color: '#2563eb', tableGroup: OrderTableGroup.REQUESTS },
+  { code: 'STATE_WRITTEN_WO', name: 'Написали WO', color: '#7c3aed', tableGroup: OrderTableGroup.REQUESTS },
+  { code: 'STATE_WRITTEN_WNG', name: 'Написали WNg', color: '#8b5cf6', tableGroup: OrderTableGroup.REQUESTS },
+  { code: 'STATE_REACHED_PHONE', name: 'Дозвонились Тел', color: '#16a34a', tableGroup: OrderTableGroup.REQUESTS },
+  { code: 'STATE_NOT_REACHED_PHONE', name: 'Недозвон Тел', color: '#dc2626', tableGroup: OrderTableGroup.REQUESTS },
+  { code: 'STATE_PROCESSING_STARTED', name: 'Приступ. оформлению', color: '#0891b2', tableGroup: OrderTableGroup.REQUESTS },
+  { code: 'STATE_ORDERED', name: 'Заказали', color: '#0ea5e9', tableGroup: OrderTableGroup.REQUESTS },
+  { code: 'STATE_CC', name: 'СС', color: '#1d4ed8', tableGroup: OrderTableGroup.REQUESTS },
+  { code: 'STATE_CCV', name: 'ССВ', color: '#4338ca', tableGroup: OrderTableGroup.REQUESTS },
+  { code: 'STATE_CLOSED_PLUS', name: 'Закрыт+', color: '#16a34a', tableGroup: OrderTableGroup.ARCHIVE },
+  { code: 'STATE_CLOSED_MINUS', name: 'Закрыт-', color: '#dc2626', tableGroup: OrderTableGroup.ARCHIVE },
+] as const;
+
+const ASSEMBLY_STATUSES = [
+  { code: 'ASSEMBLY_PICKUP', name: 'Соберите самовывоз', color: '#2563eb' },
+  { code: 'ASSEMBLY_YANDEX', name: 'Соберите Яндекс', color: '#f59e0b' },
+  { code: 'ASSEMBLY_PONY', name: 'Соберите Пони', color: '#8b5cf6' },
+  { code: 'ASSEMBLY_DOVAS', name: 'Соберите ДоВас', color: '#0ea5e9' },
+] as const;
+
+const ALL_ORDER_TABLE_GROUPS: OrderTableGroup[] = [
+  OrderTableGroup.REQUESTS,
+  OrderTableGroup.PICKUP,
+  OrderTableGroup.ALMATY_DELIVERY,
+  OrderTableGroup.RK_DELIVERY,
+  OrderTableGroup.ARCHIVE,
+];
+
+const ROLE_ACCESS_DEFAULTS: Record<
+  string,
+  { allowedRoutes: string[]; allowedOrderTableGroups: OrderTableGroup[] }
+> = {
+  admin: {
+    allowedRoutes: ['*'],
+    allowedOrderTableGroups: ALL_ORDER_TABLE_GROUPS,
+  },
+  manager: {
+    allowedRoutes: [
+      '/',
+      '/orders',
+      '/orders-requests',
+      '/orders-pickup',
+      '/orders-almaty-delivery',
+      '/orders-rk-delivery',
+      '/orders-archive',
+      '/products',
+      '/manufacturers',
+      '/active-substances',
+      '/product-order-sources',
+      '/storage-places',
+      '/order-statuses-action',
+      '/order-statuses-state',
+    ],
+    allowedOrderTableGroups: ALL_ORDER_TABLE_GROUPS,
+  },
+  delivery_operator: {
+    allowedRoutes: ['/orders-almaty-delivery', '/orders-rk-delivery'],
+    allowedOrderTableGroups: [
+      OrderTableGroup.ALMATY_DELIVERY,
+      OrderTableGroup.RK_DELIVERY,
+    ],
+  },
+  assembler: {
+    allowedRoutes: ['/orders-pickup', '/orders-almaty-delivery', '/orders-rk-delivery', '/storage-places'],
+    allowedOrderTableGroups: [
+      OrderTableGroup.PICKUP,
+      OrderTableGroup.ALMATY_DELIVERY,
+      OrderTableGroup.RK_DELIVERY,
+    ],
+  },
+};
+
 async function main() {
-  const systemRoles: Array<{ code: string; name: string }> = [
-    { code: 'admin', name: 'Админ' },
-    { code: 'manager', name: 'Менеджер' },
-    { code: 'delivery_operator', name: 'Оператор доставки' },
-    { code: 'assembler', name: 'Сборщик заказов' },
-  ];
+  const systemRoles: Array<{ code: string; name: string }> = [{ code: 'admin', name: 'Админ' }];
 
   for (const role of systemRoles) {
+    const access = ROLE_ACCESS_DEFAULTS[role.code];
     await prisma.role.upsert({
       where: { code: role.code },
-      update: { name: role.name, isSystem: true },
+      update: {
+        name: role.name,
+        isSystem: true,
+        allowedRoutes: access.allowedRoutes,
+        allowedOrderTableGroups: access.allowedOrderTableGroups,
+      },
       create: {
         code: role.code,
         name: role.name,
         isSystem: true,
+        allowedRoutes: access.allowedRoutes,
+        allowedOrderTableGroups: access.allowedOrderTableGroups,
       },
     });
   }
 
-  const [adminRole, managerRole] = await Promise.all([
-    prisma.role.findUniqueOrThrow({
-    where: { code: 'admin' },
-    }),
-    prisma.role.findUniqueOrThrow({
-      where: { code: 'manager' },
-    }),
-  ]);
-
-  const allowedRoleCodes = new Set(systemRoles.map((role) => role.code));
-  const obsoleteSystemRoles = await prisma.role.findMany({
-    where: {
-      isSystem: true,
-      code: { notIn: [...allowedRoleCodes] },
-    },
-    select: { id: true },
-  });
-
-  if (obsoleteSystemRoles.length > 0) {
-    const obsoleteIds = obsoleteSystemRoles.map((role) => role.id);
-    await prisma.user.updateMany({
-      where: { roleId: { in: obsoleteIds } },
-      data: { roleId: managerRole.id },
-    });
-    await prisma.role.deleteMany({
-      where: { id: { in: obsoleteIds } },
-    });
-  }
-
+  const adminRole = await prisma.role.findUniqueOrThrow({ where: { code: 'admin' } });
   await prisma.user.upsert({
     where: { login: 'admin' },
     update: {
@@ -80,283 +146,82 @@ async function main() {
     },
   });
 
-  const existingMainStorage = await prisma.storagePlace.findFirst({
-    where: { name: 'Основной склад' },
-    select: { id: true },
-  });
-  const mainStorage = existingMainStorage
-    ? await prisma.storagePlace.update({
-        where: { id: existingMainStorage.id },
-        data: {
-          name: 'Основной склад',
-          description: 'Базовое место хранения',
-          isActive: true,
-        },
-      })
-    : await prisma.storagePlace.create({
-        data: {
-          name: 'Основной склад',
-          description: 'Базовое место хранения',
-          isActive: true,
-        },
-      });
-
-  const ensureCountry = async (code: string, name: string) => {
-    const existing = await prisma.country.findFirst({
-      where: {
-        OR: [{ code }, { name }],
-      },
-      select: { id: true },
-    });
-
-    if (existing) {
-      await prisma.country.update({
-        where: { id: existing.id },
-        data: { code, name, isActive: true },
-      });
-      return existing.id;
-    }
-
-    const created = await prisma.country.create({
-      data: { code, name, isActive: true },
-      select: { id: true },
-    });
-    return created.id;
-  };
-
-  const kzId = await ensureCountry('KZ', 'Казахстан');
-
-  const existingOrderSource = await prisma.productOrderSource.findFirst({
-    where: { name: 'Внешний поставщик' },
-    select: { id: true },
-  });
-  const productOrderSource = existingOrderSource
-    ? await prisma.productOrderSource.update({
-        where: { id: existingOrderSource.id },
-        data: {
-          name: 'Внешний поставщик',
-          color: '#7c3aed',
-          isActive: true,
-          deletedAt: null,
-        },
-      })
-    : await prisma.productOrderSource.create({
-        data: {
-          name: 'Внешний поставщик',
-          color: '#7c3aed',
-          isActive: true,
-        },
-      });
-
-  const manufacturerNames = [
-    'Bayer',
-    'Novartis',
-    'Pfizer',
-    'Sanofi',
-    'Roche',
-    'GSK',
-    'Abbott',
-    'AstraZeneca',
-    'Merck',
-    'Takeda',
-  ];
-  const substanceNames = [
-    'Парацетамол',
-    'Ибупрофен',
-    'Амоксициллин',
-    'Азитромицин',
-    'Метформин',
-    'Омепразол',
-    'Лоратадин',
-    'Цетиризин',
-    'Аторвастатин',
-    'Левофлоксацин',
-  ];
-
-  const manufacturerIds: number[] = [];
-  for (let index = 0; index < manufacturerNames.length; index += 1) {
-    const manufacturer = await prisma.manufacturer.findFirst({
-      where: {
-        OR: [{ name: manufacturerNames[index] }, { countryId: kzId, name: manufacturerNames[index] }],
-      },
-      select: { id: true },
-    });
-    if (manufacturer) {
-      await prisma.manufacturer.update({
-        where: { id: manufacturer.id },
-        data: {
-          name: manufacturerNames[index],
-          countryId: kzId,
-          isActive: true,
-        },
-      });
-      manufacturerIds.push(manufacturer.id);
-      continue;
-    }
-
-    const created = await prisma.manufacturer.create({
-      data: {
-        name: manufacturerNames[index],
-        countryId: kzId,
+  for (let i = 0; i < ACTION_STATUSES.length; i += 1) {
+    const s = ACTION_STATUSES[i];
+    await prisma.orderStatusConfig.upsert({
+      where: { code: s.code },
+      update: {
+        type: OrderStatusType.ACTION,
+        name: s.name,
+        color: s.color,
+        tableGroup: null,
+        reserveOnSet: s.reserveOnSet,
+        writeOffOnSet: s.writeOffOnSet,
+        setAssemblyDateOnSet: s.setAssemblyDateOnSet,
         isActive: true,
+        sortOrder: i,
       },
-      select: { id: true },
-    });
-    manufacturerIds.push(created.id);
-  }
-
-  const substanceIds: number[] = [];
-  for (const substanceName of substanceNames) {
-    const substance = await prisma.activeSubstance.findFirst({
-      where: { name: substanceName },
-      select: { id: true },
-    });
-    if (substance) {
-      await prisma.activeSubstance.update({
-        where: { id: substance.id },
-        data: { name: substanceName, isActive: true },
-      });
-      substanceIds.push(substance.id);
-      continue;
-    }
-    const created = await prisma.activeSubstance.create({
-      data: { name: substanceName, isActive: true },
-      select: { id: true },
-    });
-    substanceIds.push(created.id);
-  }
-
-  const availabilityCycle: ProductAvailabilityStatus[] = [
-    ProductAvailabilityStatus.IN_STOCK,
-    ProductAvailabilityStatus.ON_REQUEST,
-    ProductAvailabilityStatus.OUT_OF_STOCK,
-  ];
-
-  const productIds: number[] = [];
-  for (let index = 0; index < 10; index += 1) {
-    const productName = `Препарат ${index + 1}`;
-    const availabilityStatus = availabilityCycle[index % availabilityCycle.length];
-    const stockQuantity = availabilityStatus === ProductAvailabilityStatus.OUT_OF_STOCK ? 0 : 80 + index * 3;
-    const reservedQuantity = 0;
-
-    const existing = await prisma.product.findFirst({
-      where: { name: productName },
-      select: { id: true },
-    });
-
-    if (existing) {
-      await prisma.product.update({
-        where: { id: existing.id },
-        data: {
-          name: productName,
-          description: `Демо-описание для ${productName}`,
-          manufacturerId: manufacturerIds[index % manufacturerIds.length],
-          activeSubstanceId: substanceIds[index % substanceIds.length],
-          availabilityStatus,
-          productOrderSourceId:
-            availabilityStatus === ProductAvailabilityStatus.ON_REQUEST ? productOrderSource.id : null,
-          stockQuantity,
-          reservedQuantity,
-          price: new Prisma.Decimal((1500 + index * 120).toFixed(2)),
-          isActive: true,
-        },
-      });
-      productIds.push(existing.id);
-      continue;
-    }
-
-    const created = await prisma.product.create({
-      data: {
-        name: productName,
-        description: `Демо-описание для ${productName}`,
-        manufacturerId: manufacturerIds[index % manufacturerIds.length],
-        activeSubstanceId: substanceIds[index % substanceIds.length],
-        availabilityStatus,
-        productOrderSourceId: availabilityStatus === ProductAvailabilityStatus.ON_REQUEST ? productOrderSource.id : null,
-        stockQuantity,
-        reservedQuantity,
-        price: new Prisma.Decimal((1500 + index * 120).toFixed(2)),
+      create: {
+        code: s.code,
+        type: OrderStatusType.ACTION,
+        name: s.name,
+        color: s.color,
+        tableGroup: null,
+        reserveOnSet: s.reserveOnSet,
+        writeOffOnSet: s.writeOffOnSet,
+        setAssemblyDateOnSet: s.setAssemblyDateOnSet,
         isActive: true,
+        sortOrder: i,
       },
-      select: { id: true },
     });
-    productIds.push(created.id);
   }
 
-  const clientPhones = Array.from({ length: 10 }, (_, index) => `+770100000${String(index + 1).padStart(2, '0')}`);
-
-  const availabilityLabelByCode: Record<ProductAvailabilityStatus, string> = {
-    [ProductAvailabilityStatus.OUT_OF_STOCK]: 'Нет в наличии',
-    [ProductAvailabilityStatus.ON_REQUEST]: 'На заказ',
-    [ProductAvailabilityStatus.IN_STOCK]: 'Есть',
-  };
-
-  for (let index = 0; index < 10; index += 1) {
-    const marker = `SEED_ORDER_${String(index + 1).padStart(2, '0')}`;
-    const existing = await prisma.order.findFirst({
-      where: { description: marker },
-      select: { id: true },
-    });
-    if (existing) {
-      continue;
-    }
-
-    const product = await prisma.product.findUniqueOrThrow({
-      where: { id: productIds[index % productIds.length] },
-      include: {
-        manufacturer: true,
-        activeSubstance: true,
-        orderSource: true,
+  for (let i = 0; i < STATE_STATUSES.length; i += 1) {
+    const s = STATE_STATUSES[i];
+    await prisma.orderStatusConfig.upsert({
+      where: { code: s.code },
+      update: {
+        type: OrderStatusType.STATE,
+        name: s.name,
+        color: s.color,
+        tableGroup: s.tableGroup,
+        reserveOnSet: false,
+        writeOffOnSet: false,
+        setAssemblyDateOnSet: false,
+        isActive: true,
+        sortOrder: i,
+      },
+      create: {
+        code: s.code,
+        type: OrderStatusType.STATE,
+        name: s.name,
+        color: s.color,
+        tableGroup: s.tableGroup,
+        reserveOnSet: false,
+        writeOffOnSet: false,
+        setAssemblyDateOnSet: false,
+        isActive: true,
+        sortOrder: i,
       },
     });
+  }
 
-    const quantity = 1 + (index % 3);
-    const pricePerItem = new Prisma.Decimal(product.price);
-    const lineTotal = pricePerItem.mul(quantity);
-    const deliveryPrice = new Prisma.Decimal(index % 2 === 0 ? 0 : 1500);
-    const itemsTotalPrice = lineTotal;
-    const totalPrice = itemsTotalPrice.plus(deliveryPrice);
-    const paidAmount = new Prisma.Decimal(0);
-    const remainingAmount = totalPrice;
-
-    await prisma.order.create({
-      data: {
-        clientPhone: clientPhones[index % clientPhones.length],
-        countryId: kzId,
-        city: index % 2 === 0 ? 'Алматы' : 'Астана',
-        address: `Демо адрес ${index + 1}`,
-        deliveryStatus: [
-          DeliveryStatusCode.COLLECT_DOVAS,
-          DeliveryStatusCode.COLLECT_PONY,
-          DeliveryStatusCode.COLLECT_YANDEX,
-          DeliveryStatusCode.COLLECT_PICKUP,
-        ][
-          index % 4
-        ],
-        deliveryPrice,
-        itemsTotalPrice,
-        totalPrice,
-        paidAmount,
-        remainingAmount,
-        paymentStatus: PaymentStatusCode.UNPAID,
-        orderStatus: OrderStatusCode.ORDER,
-        storagePlaceId: mainStorage.id,
-        description: marker,
-        items: {
-          create: [
-            {
-              productId: product.id,
-              productNameSnapshot: product.name,
-              productStatusNameSnapshot: availabilityLabelByCode[product.availabilityStatus],
-              orderSourceNameSnapshot: product.orderSource?.name ?? null,
-              manufacturerNameSnapshot: product.manufacturer.name,
-              activeSubstanceNameSnapshot: product.activeSubstance.name,
-              quantity,
-              pricePerItem,
-              lineTotal,
-            },
-          ],
-        },
+  for (let i = 0; i < ASSEMBLY_STATUSES.length; i += 1) {
+    const s = ASSEMBLY_STATUSES[i];
+    await prisma.assemblyStatus.upsert({
+      where: { code: s.code },
+      update: {
+        name: s.name,
+        color: s.color,
+        isActive: true,
+        sortOrder: i,
+      },
+      create: {
+        code: s.code,
+        name: s.name,
+        color: s.color,
+        isActive: true,
+        sortOrder: i,
       },
     });
   }

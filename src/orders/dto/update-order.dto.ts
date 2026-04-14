@@ -1,4 +1,4 @@
-import { DeliveryStatusCode, OrderStatusCode, PaymentStatusCode } from '@prisma/client';
+import { PaymentStatusCode } from '@prisma/client';
 import { IsEnum, IsInt, IsNumber, IsOptional, IsString, Length, Min, ValidateIf } from 'class-validator';
 
 export class UpdateOrderDto {
@@ -8,23 +8,23 @@ export class UpdateOrderDto {
   clientPhone?: string;
 
   @IsOptional()
-  @IsInt()
-  @Min(1)
-  countryId?: number;
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @Length(1, 255)
+  clientFullName?: string | null;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsString()
   @Length(1, 120)
-  city?: string;
+  city?: string | null;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
   @IsString()
   @Length(1, 1000)
-  address?: string;
-
-  @IsOptional()
-  @IsEnum(DeliveryStatusCode)
-  deliveryStatus?: DeliveryStatusCode;
+  address?: string | null;
 
   @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
@@ -36,8 +36,20 @@ export class UpdateOrderDto {
   paymentStatus?: PaymentStatusCode;
 
   @IsOptional()
-  @IsEnum(OrderStatusCode)
-  orderStatus?: OrderStatusCode;
+  @IsString()
+  @Length(1, 80)
+  actionStatusCode?: string;
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 80)
+  stateStatusCode?: string;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @Length(1, 80)
+  assemblyStatusCode?: string | null;
 
   @IsOptional()
   @ValidateIf((_, value) => value !== null)
@@ -52,7 +64,25 @@ export class UpdateOrderDto {
   description?: string | null;
 
   @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsInt()
+  @Min(1)
+  productId?: number;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsInt()
+  @Min(1)
+  quantity?: number;
+
+  @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
-  paidAmount?: number;
+  productPrice?: number;
+
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsString()
+  @Length(1, 255)
+  orderStorage?: string | null;
 }

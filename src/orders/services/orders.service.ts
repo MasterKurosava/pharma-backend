@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { DeliveryStatusCode, OrderStatusCode, PaymentStatusCode, Prisma } from '@prisma/client';
+import { OrderStatusConfig, PaymentStatusCode, Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CreateOrderDto } from '../dto/create-order.dto';
@@ -8,33 +8,30 @@ import { OrderQueryDto } from '../dto/order-query.dto';
 import { OrderInventoryService } from './order-inventory.service';
 import { OrderPrecheckService } from './order-precheck.service';
 import { PrismaErrorMapperService } from '../../common/prisma/prisma-error-mapper.service';
-import { ORDER_FULL_INCLUDE } from '../order.constants';
+import { FullOrder, ORDER_FULL_INCLUDE } from '../order.constants';
 import { ORDER_FILTER_QUERY_MAP } from '../constants/order-access.constants';
 import { OrdersSummaryQueryDto } from '../dto/orders-summary-query.dto';
-import { SaveOrderItemDto } from '../dto/items/save-order-item.dto';
 import { UpdateOrdersBatchStatusDto } from '../dto/update-orders-batch-status.dto';
 import { AccessPolicyService } from '../../common/access/access-policy.service';
-import { OrderFilterKey, OrderUpdateFieldKey } from '../../common/access/access-policy.types';
+import {
+  OrderFilterKey,
+  OrderTableGroupKey,
+  OrderUpdateFieldKey,
+} from '../../common/access/access-policy.types';
 import { PRODUCT_AVAILABILITY_LABELS } from '../../products/constants/product-status.constants';
 
 const ORDER_LIST_INCLUDE = {
-  country: true,
   storagePlace: true,
-  items: {
-    select: {
-      productId: true,
-      productNameSnapshot: true,
-      quantity: true,
-    },
-    orderBy: { id: 'asc' as const },
-    take: 2,
-  },
-  _count: {
-    select: { items: true },
-  },
+  actionStatus: true,
+  stateStatus: true,
+  assemblyStatus: true,
 } as const;
 
-type FixedOrderFilters = { countryId?: number; city?: string; orderStatus?: string; deliveryStatuses?: string[] };
+type FixedOrderFilters = {
+  city?: string;
+  orderStatus?: string;
+  tableGroup?: OrderTableGroupKey;
+};
 
 @Injectable()
 export class OrdersService {
@@ -50,8 +47,16 @@ export class OrdersService {
 
   async findAll(query: OrderQueryDto, roleCode: string) {
     const policy = await this.accessPolicy.getAccessPolicy(roleCode);
-    const effectiveQuery = this.applyOrderFilterPolicy(query, policy.orders.visibleFilters, policy.orders.fixedFilters);
-    const where = this.buildOrderWhere(effectiveQuery);
+    const effectiveQuery = this.applyOrderFilterPolicy(
+      query,
+      policy.orders.visibleFilters,
+      policy.orders.fixedFilters,
+      policy.orders.allowedTableGroups,
+    );
+    const where = this.buildOrderWhere(
+      effectiveQuery,
+      policy.orders.allowedTableGroups,
+    );
     const orderBy = this.buildOrderBy(effectiveQuery);
     const page = effectiveQuery.page ?? 1;
     const pageSize = effectiveQuery.pageSize ?? 20;
@@ -99,13 +104,13 @@ export class OrdersService {
       this.prisma.order.count({
         where: {
           ...createdAtFilter,
-          orderStatus: 'ORDER',
+          actionStatusCode: 'ACTION_IN_STOCK',
         },
       }),
       this.prisma.order.count({
         where: {
           ...createdAtFilter,
-          orderStatus: 'DELIVERY_REGISTRATION',
+          actionStatusCode: 'ACTION_COLLECT_DELIVERY_ALMATY',
         },
       }),
       this.prisma.order.count({
@@ -140,178 +145,249 @@ export class OrdersService {
   }
 
   async create(dto: CreateOrderDto, currentUserId: number) {
-    this.assertOrderHasItems(dto.items?.length ?? 0);
-    if (!dto.address.trim()) {
-      throw new BadRequestException('Адрес обязателен');
-    }
-
-    return this.prisma
-      .$transaction(async (tx) => {
+    return this.withOrderTransaction(async (tx) => {
       await this.precheck.loadCreateContext(dto, tx);
-
-      const productIds = [...new Set(dto.items.map((item) => item.productId))];
-      const products = await tx.product.findMany({
-        where: { id: { in: productIds } },
+      const product = await tx.product.findUnique({
+        where: { id: dto.productId },
         include: {
           manufacturer: true,
           activeSubstance: true,
           orderSource: true,
         },
       });
-
-      if (products.length !== productIds.length) {
-        throw new NotFoundException('Один или несколько товаров не найдены');
+      if (!product) {
+        throw new NotFoundException('Товар не найден');
       }
-
-      const productsById = new Map<number, (typeof products)[number]>(
-        products.map((product) => [product.id, product]),
+      const pricePerItem = this.toMoney(dto.productPrice ?? product.price);
+      const quantity = dto.quantity;
+      if (quantity <= 0) {
+        throw new BadRequestException('Количество товара должно быть больше нуля');
+      }
+      const totals = this.calculateOrderTotals(
+        pricePerItem.toFixed(2),
+        quantity,
+        dto.deliveryPrice,
+        dto.paymentStatus ?? PaymentStatusCode.UNPAID,
       );
+      const actionStatus = await this.getStatusConfig(tx, dto.actionStatusCode, 'ACTION');
+      const stateStatus = await this.getStatusConfig(tx, dto.stateStatusCode, 'STATE');
+      const now = new Date();
+      const paymentDates = this.resolvePaymentDates(undefined, dto.paymentStatus ?? PaymentStatusCode.UNPAID, now);
 
-      const preparedItems = dto.items.map((item) => {
-        if (item.quantity <= 0) {
-          throw new BadRequestException('Количество товара должно быть больше нуля');
-        }
-
-        const product = productsById.get(item.productId);
-        if (!product) {
-          throw new NotFoundException('Товар не найден');
-        }
-
-        const pricePerItem = this.toMoney(product.price);
-        const lineTotal = this.toMoney(pricePerItem.mul(item.quantity));
-
-        return {
-          productId: item.productId,
-          quantity: item.quantity,
-          stockQuantity: product.stockQuantity,
-          reservedQuantity: product.reservedQuantity,
-          pricePerItem: pricePerItem.toFixed(2),
-          lineTotal: lineTotal.toFixed(2),
+      const createdOrder = await tx.order.create({
+        data: {
+          clientPhone: dto.clientPhone.trim(),
+          clientFullName: dto.clientFullName?.trim() || undefined,
+          city: dto.city?.trim() || undefined,
+          address: dto.address?.trim() || undefined,
+          deliveryPrice: totals.deliveryPrice,
+          itemsTotalPrice: totals.itemsTotalPrice,
+          totalPrice: totals.totalPrice,
+          remainingAmount: totals.remainingAmount,
+          paymentStatus: dto.paymentStatus ?? PaymentStatusCode.UNPAID,
+          prepaymentDate: paymentDates.prepaymentDate,
+          paymentDate: paymentDates.paymentDate,
+          actionStatusCode: dto.actionStatusCode,
+          stateStatusCode: dto.stateStatusCode,
+          assemblyStatusCode: dto.assemblyStatusCode?.trim() || null,
+          storagePlaceId: dto.storagePlaceId,
+          orderStorage: dto.orderStorage?.trim() || null,
+          description: dto.description?.trim() || null,
+          productId: product.id,
           productNameSnapshot: product.name,
           productStatusNameSnapshot: PRODUCT_AVAILABILITY_LABELS[product.availabilityStatus],
           orderSourceNameSnapshot: product.orderSource?.name ?? null,
           manufacturerNameSnapshot: product.manufacturer.name,
           activeSubstanceNameSnapshot: product.activeSubstance.name,
-        };
+          productPrice: pricePerItem.toFixed(2),
+          quantity,
+          ...(actionStatus.setAssemblyDateOnSet ? { assemblyDate: now } : {}),
+        },
       });
-
-      const totals = this.calculateOrderTotals(
-        preparedItems.map((item) => ({ lineTotal: item.lineTotal })),
-        dto.deliveryPrice,
-        dto.paidAmount,
-      );
-
-      const createdOrder = await tx.order.create({
-        data: this.buildCreateOrderData(dto, totals),
-      });
-
-      // Reserve inventory once per product to reduce round-trips for duplicate product rows.
-      const reserveByProduct = new Map<
-        number,
-        { quantity: number; stockQuantity: number; reservedQuantity: number; productName: string }
-      >();
-      for (const item of preparedItems) {
-        const existing = reserveByProduct.get(item.productId);
-        if (existing) {
-          existing.quantity += item.quantity;
-          continue;
-        }
-        reserveByProduct.set(item.productId, {
-          quantity: item.quantity,
-          stockQuantity: item.stockQuantity,
-          reservedQuantity: item.reservedQuantity,
-          productName: item.productNameSnapshot,
-        });
-      }
-
-      for (const [productId, reserve] of reserveByProduct) {
-        await this.orderInventoryService.reserve(tx, {
-          product: {
-            id: productId,
-            name: reserve.productName,
-            stockQuantity: reserve.stockQuantity,
-            reservedQuantity: reserve.reservedQuantity,
-          },
-          quantity: reserve.quantity,
-          orderId: createdOrder.id,
-          currentUserId,
-        });
-      }
-
-      await tx.orderItem.createMany({
-        data: preparedItems.map((item) => ({
-          orderId: createdOrder.id,
-          productId: item.productId,
-          quantity: item.quantity,
-          pricePerItem: item.pricePerItem,
-          lineTotal: item.lineTotal,
-          productNameSnapshot: item.productNameSnapshot,
-          productStatusNameSnapshot: item.productStatusNameSnapshot,
-          orderSourceNameSnapshot: item.orderSourceNameSnapshot,
-          manufacturerNameSnapshot: item.manufacturerNameSnapshot,
-          activeSubstanceNameSnapshot: item.activeSubstanceNameSnapshot,
-        })),
+      await this.applyStatusInventoryAutomation(tx, {
+        orderId: createdOrder.id,
+        currentUserId,
+        quantity,
+        productId: product.id,
+        previousActionStatus: null,
+        nextActionStatus: actionStatus,
       });
 
       return this.loadOrderFullOrThrow(tx, createdOrder.id);
-      }, { timeout: 15000 })
-      .catch((error) => this.prismaErrorMapper.rethrow(error));
+    });
   }
 
   async update(id: number, dto: UpdateOrderFullDto, currentUserId: number, roleCode: string) {
     const policy = await this.accessPolicy.getAccessPolicy(roleCode);
     const sanitizedDto = this.sanitizeUpdateDtoByPolicy(dto, policy.orders.editableFields);
 
-    if (sanitizedDto.address !== undefined && !sanitizedDto.address.trim()) {
+    if (typeof sanitizedDto.address === 'string' && !sanitizedDto.address.trim()) {
       throw new BadRequestException('Адрес обязателен');
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      const currentOrder = await this.loadOrderFullOrThrow(tx, id);
+    return this.withOrderTransaction(async (tx) => {
+      const currentOrder: FullOrder = await this.loadOrderFullOrThrow(tx, id);
+      const currentOrderStatusCodes = currentOrder as FullOrder & {
+        actionStatusCode: string;
+        stateStatusCode: string;
+      };
       await this.precheck.loadUpdateContext(sanitizedDto, currentOrder, tx);
-      let itemsForTotals = currentOrder.items.map((item) => ({ lineTotal: item.lineTotal.toString() }));
-
-      if (sanitizedDto.items !== undefined) {
-        itemsForTotals = await this.replaceOrderItems(tx, currentOrder, sanitizedDto.items, currentUserId);
+      const nextProductId = sanitizedDto.productId ?? currentOrder.productId;
+      const nextQuantity = sanitizedDto.quantity ?? currentOrder.quantity;
+      if (nextQuantity <= 0) {
+        throw new BadRequestException('Количество товара должно быть больше нуля');
       }
-
-      const deliveryPrice = sanitizedDto.deliveryPrice ?? currentOrder.deliveryPrice;
-      const paidAmount = sanitizedDto.paidAmount ?? currentOrder.paidAmount;
-      const totals = this.calculateOrderTotals(itemsForTotals, deliveryPrice, paidAmount);
+      const nextProduct = await tx.product.findUnique({
+        where: { id: nextProductId },
+        include: {
+          manufacturer: true,
+          activeSubstance: true,
+          orderSource: true,
+        },
+      });
+      if (!nextProduct) {
+        throw new NotFoundException('Товар не найден');
+      }
+      const nextProductPrice = this.toMoney(sanitizedDto.productPrice ?? currentOrder.productPrice);
+      const nextPaymentStatus = sanitizedDto.paymentStatus ?? currentOrder.paymentStatus;
+      const totals = this.calculateOrderTotals(
+        nextProductPrice.toFixed(2),
+        nextQuantity,
+        sanitizedDto.deliveryPrice ?? currentOrder.deliveryPrice,
+        nextPaymentStatus,
+      );
+      const nextActionStatusCode =
+        sanitizedDto.actionStatusCode ?? currentOrderStatusCodes.actionStatusCode;
+      const nextStateStatusCode =
+        sanitizedDto.stateStatusCode ?? currentOrderStatusCodes.stateStatusCode;
+      const [nextActionStatus, nextStateStatus] = await Promise.all([
+        this.getStatusConfig(tx, nextActionStatusCode, 'ACTION'),
+        this.getStatusConfig(tx, nextStateStatusCode, 'STATE'),
+      ]);
+      const now = new Date();
+      const paymentDates = this.resolvePaymentDates(
+        {
+          paymentDate: currentOrder.paymentDate,
+          prepaymentDate: currentOrder.prepaymentDate,
+          paymentStatus: currentOrder.paymentStatus,
+        },
+        nextPaymentStatus,
+        now,
+      );
 
       const updated = await tx.order.update({
         where: { id },
-        data: this.buildUpdateOrderData(sanitizedDto, totals),
+        data: {
+          ...(sanitizedDto.clientPhone !== undefined ? { clientPhone: sanitizedDto.clientPhone.trim() } : {}),
+          ...(sanitizedDto.clientFullName !== undefined
+            ? { clientFullName: sanitizedDto.clientFullName === null ? null : sanitizedDto.clientFullName.trim() }
+            : {}),
+          ...(sanitizedDto.city !== undefined ? { city: sanitizedDto.city === null ? null : sanitizedDto.city.trim() } : {}),
+          ...(sanitizedDto.address !== undefined
+            ? { address: sanitizedDto.address === null ? null : sanitizedDto.address.trim() }
+            : {}),
+          ...(sanitizedDto.deliveryPrice !== undefined ? { deliveryPrice: totals.deliveryPrice } : {}),
+          ...(sanitizedDto.paymentStatus !== undefined ? { paymentStatus: nextPaymentStatus } : {}),
+          ...(sanitizedDto.actionStatusCode !== undefined ? { actionStatusCode: nextActionStatusCode } : {}),
+          ...(sanitizedDto.stateStatusCode !== undefined ? { stateStatusCode: nextStateStatusCode } : {}),
+          ...(sanitizedDto.assemblyStatusCode !== undefined
+            ? {
+                assemblyStatusCode:
+                  sanitizedDto.assemblyStatusCode === null
+                    ? null
+                    : sanitizedDto.assemblyStatusCode.trim(),
+              }
+            : {}),
+          ...(sanitizedDto.storagePlaceId !== undefined ? { storagePlaceId: sanitizedDto.storagePlaceId } : {}),
+          ...(sanitizedDto.orderStorage !== undefined
+            ? { orderStorage: sanitizedDto.orderStorage === null ? null : sanitizedDto.orderStorage.trim() }
+            : {}),
+          ...(sanitizedDto.description !== undefined
+            ? { description: sanitizedDto.description === null ? null : sanitizedDto.description.trim() }
+            : {}),
+          ...(sanitizedDto.productId !== undefined ? { productId: nextProduct.id } : {}),
+          ...(sanitizedDto.productPrice !== undefined ? { productPrice: nextProductPrice.toFixed(2) } : {}),
+          ...(sanitizedDto.quantity !== undefined ? { quantity: nextQuantity } : {}),
+          productNameSnapshot: nextProduct.name,
+          productStatusNameSnapshot: PRODUCT_AVAILABILITY_LABELS[nextProduct.availabilityStatus],
+          orderSourceNameSnapshot: nextProduct.orderSource?.name ?? null,
+          manufacturerNameSnapshot: nextProduct.manufacturer.name,
+          activeSubstanceNameSnapshot: nextProduct.activeSubstance.name,
+          itemsTotalPrice: totals.itemsTotalPrice,
+          totalPrice: totals.totalPrice,
+          remainingAmount: totals.remainingAmount,
+          prepaymentDate: paymentDates.prepaymentDate,
+          paymentDate: paymentDates.paymentDate,
+          ...(nextActionStatus.setAssemblyDateOnSet && !currentOrder.assemblyDate ? { assemblyDate: now } : {}),
+        },
         include: ORDER_FULL_INCLUDE,
       });
+
+      if ((sanitizedDto.productId !== undefined || sanitizedDto.quantity !== undefined) && currentOrder.actionStatus.reserveOnSet) {
+        if (currentOrder.productId !== nextProduct.id) {
+          await this.orderInventoryService.release(tx, {
+            productId: currentOrder.productId,
+            quantity: currentOrder.quantity,
+            orderId: currentOrder.id,
+            currentUserId,
+          });
+          await this.orderInventoryService.reserve(tx, {
+            product: nextProduct,
+            quantity: nextQuantity,
+            orderId: currentOrder.id,
+            currentUserId,
+          });
+        } else {
+          const delta = nextQuantity - currentOrder.quantity;
+          if (delta > 0) {
+            await this.orderInventoryService.reserve(tx, {
+              product: nextProduct,
+              quantity: delta,
+              orderId: currentOrder.id,
+              currentUserId,
+            });
+          } else if (delta < 0) {
+            await this.orderInventoryService.release(tx, {
+              productId: currentOrder.productId,
+              quantity: Math.abs(delta),
+              orderId: currentOrder.id,
+              currentUserId,
+            });
+          }
+        }
+      }
+
+      await this.applyStatusInventoryAutomation(tx, {
+        orderId: currentOrder.id,
+        currentUserId,
+        quantity: nextQuantity,
+        productId: nextProduct.id,
+        previousActionStatus: currentOrder.actionStatus,
+        nextActionStatus,
+      });
       return updated;
-    }, { timeout: 15000 }).catch((error) => this.prismaErrorMapper.rethrow(error));
+    });
   }
 
   async delete(id: number, currentUserId: number) {
-    return this.prisma
-      .$transaction(async (tx) => {
-        const order = await this.loadOrderFullOrThrow(tx, id);
+    return this.withOrderTransaction(async (tx) => {
+        const order: FullOrder = await this.loadOrderFullOrThrow(tx, id);
 
-        // Undo reserved quantities for current order items.
-        for (const item of order.items) {
+        if (order.actionStatus.reserveOnSet) {
           await this.orderInventoryService.release(tx, {
-            productId: item.productId,
-            quantity: item.quantity,
+            productId: order.productId,
+            quantity: order.quantity,
             orderId: id,
             currentUserId,
           });
         }
 
-        // Clean up relations explicitly (no cascade in Prisma schema).
-        await tx.orderItem.deleteMany({ where: { orderId: id } });
         await tx.productStockMovement.deleteMany({ where: { orderId: id } });
 
         await tx.order.delete({ where: { id } });
 
         return id;
-      }, { timeout: 15000 })
-      .catch((error) => this.prismaErrorMapper.rethrow(error));
+      });
   }
 
   async updateBatchStatuses(dto: UpdateOrdersBatchStatusDto, roleCode: string) {
@@ -319,11 +395,11 @@ export class OrdersService {
     const allowed = new Set<OrderUpdateFieldKey>(policy.orders.editableFields);
 
     const patchEntries = [
-      ['orderStatus', dto.orderStatus],
-      ['deliveryStatus', dto.deliveryStatus],
+      ['actionStatusCode', dto.actionStatusCode],
+      ['stateStatusCode', dto.stateStatusCode],
       ['paymentStatus', dto.paymentStatus],
     ].filter(([, value]) => value !== undefined) as Array<
-      ['orderStatus' | 'deliveryStatus' | 'paymentStatus', OrderStatusCode | DeliveryStatusCode | PaymentStatusCode]
+      ['actionStatusCode' | 'stateStatusCode' | 'paymentStatus', string]
     >;
 
     if (patchEntries.length !== 1) {
@@ -335,287 +411,153 @@ export class OrdersService {
       throw new ForbiddenException(`Недостаточно прав для изменения поля: ${field}`);
     }
 
-    const result = await this.prisma.order.updateMany({
-      where: {
-        id: { in: dto.ids },
-        orderStatus: { not: OrderStatusCode.CLOSED },
-      },
-      data: {
-        [field]: value,
-      } as Prisma.OrderUpdateManyMutationInput,
-    });
+    let actionStatus: OrderStatusConfig | null = null;
+    if (field === 'actionStatusCode') {
+      actionStatus = await this.getStatusConfig(this.prisma, value, 'ACTION');
+    } else if (field === 'stateStatusCode') {
+      await this.getStatusConfig(this.prisma, value, 'STATE');
+    }
 
-    return { updatedCount: result.count };
+    const orders = await this.prisma.order.findMany({
+      where: { id: { in: dto.ids } },
+      include: ORDER_FULL_INCLUDE,
+    });
+    let updatedCount = 0;
+    await this.prisma.$transaction(async (tx) => {
+      for (const order of orders) {
+        await tx.order.update({
+          where: { id: order.id },
+          data: {
+            [field]: value,
+            ...(field === 'paymentStatus'
+              ? this.resolvePaymentDates(
+                  {
+                    paymentDate: order.paymentDate,
+                    prepaymentDate: order.prepaymentDate,
+                    paymentStatus: order.paymentStatus,
+                  },
+                  value as PaymentStatusCode,
+                  new Date(),
+                )
+              : {}),
+          } as Prisma.OrderUpdateInput,
+        });
+        if (field === 'actionStatusCode' && actionStatus) {
+          await this.applyStatusInventoryAutomation(tx, {
+            orderId: order.id,
+            currentUserId: undefined,
+            quantity: order.quantity,
+            productId: order.productId,
+            previousActionStatus: order.actionStatus,
+            nextActionStatus: actionStatus,
+          });
+        }
+        updatedCount += 1;
+      }
+    });
+    return { updatedCount };
   }
 
   private calculateOrderTotals(
-    items: Array<{ lineTotal: string }>,
+    productPrice: Decimal.Value,
+    quantity: number,
     deliveryPriceInput?: Decimal.Value,
-    paidAmountInput?: Decimal.Value,
+    paymentStatus?: PaymentStatusCode,
   ) {
     const deliveryPrice = this.toMoney(deliveryPriceInput ?? 0);
-    const paidAmount = this.toMoney(paidAmountInput ?? 0);
+    const itemPrice = this.toMoney(productPrice);
 
     if (deliveryPrice.isNegative()) {
       throw new BadRequestException('Цена доставки не может быть отрицательной');
     }
-
-    if (paidAmount.isNegative()) {
-      throw new BadRequestException('Сумма оплаты не может быть отрицательной');
-    }
-
-    const itemsTotalPrice = items.reduce((sum, item) => sum.plus(this.toMoney(item.lineTotal)), new Decimal(0));
+    const itemsTotalPrice = this.toMoney(itemPrice.mul(quantity));
     const totalPrice = itemsTotalPrice.plus(deliveryPrice);
+    const paidRatio =
+      paymentStatus === PaymentStatusCode.PAID ? new Decimal(1) : paymentStatus === PaymentStatusCode.PREPAID_50 ? new Decimal(0.5) : new Decimal(0);
+    const paidAmount = this.toMoney(totalPrice.mul(paidRatio));
 
     if (
       deliveryPrice.greaterThan(OrdersService.MAX_MONEY) ||
       itemsTotalPrice.greaterThan(OrdersService.MAX_MONEY) ||
-      totalPrice.greaterThan(OrdersService.MAX_MONEY) ||
-      paidAmount.greaterThan(OrdersService.MAX_MONEY)
+      totalPrice.greaterThan(OrdersService.MAX_MONEY)
     ) {
       throw new BadRequestException('Сумма заказа превышает допустимый лимит 99 999 999.99');
     }
-
-    if (paidAmount.greaterThan(totalPrice)) {
-      throw new BadRequestException('Сумма оплаты не может быть больше суммы заказа');
-    }
-
     const remainingAmount = totalPrice.minus(paidAmount);
 
     return {
       deliveryPrice: deliveryPrice.toFixed(2),
       itemsTotalPrice: itemsTotalPrice.toFixed(2),
       totalPrice: totalPrice.toFixed(2),
-      paidAmount: paidAmount.toFixed(2),
       remainingAmount: remainingAmount.toFixed(2),
     };
-  }
-
-  private async replaceOrderItems(
-    tx: Prisma.TransactionClient,
-    order: Prisma.OrderGetPayload<{ include: typeof ORDER_FULL_INCLUDE }>,
-    items: SaveOrderItemDto[],
-    currentUserId: number,
-  ) {
-    this.assertOrderHasItems(items.length);
-
-    const existingById = new Map(order.items.map((item) => [item.id, item]));
-    const usedIds = new Set<number>();
-
-    for (const item of items) {
-      if (item.id !== undefined) {
-        if (usedIds.has(item.id)) {
-          throw new BadRequestException('Дубликат id позиции в payload');
-        }
-        usedIds.add(item.id);
-        if (!existingById.has(item.id)) {
-          throw new NotFoundException(`Позиция заказа с id=${item.id} не найдена`);
-        }
-      }
-    }
-
-    const productIds = [...new Set(items.map((item) => item.productId))];
-    const allTouchedProductIds = [...new Set([...productIds, ...order.items.map((item) => item.productId)])];
-
-    await this.reconcileProductReserves(tx, allTouchedProductIds);
-
-    const products = await tx.product.findMany({
-      where: { id: { in: allTouchedProductIds } },
-      include: {
-        manufacturer: true,
-        activeSubstance: true,
-        orderSource: true,
-      },
-    });
-    if (products.length !== allTouchedProductIds.length) {
-      throw new NotFoundException('Один или несколько товаров не найдены');
-    }
-    const productById = new Map(products.map((p) => [p.id, p]));
-
-    const currentPerProduct = new Map<number, number>();
-    for (const item of order.items) {
-      currentPerProduct.set(item.productId, (currentPerProduct.get(item.productId) ?? 0) + item.quantity);
-    }
-
-    const desiredPerProduct = new Map<number, number>();
-    for (const item of items) {
-      desiredPerProduct.set(item.productId, (desiredPerProduct.get(item.productId) ?? 0) + item.quantity);
-    }
-
-    const allProductIds = new Set<number>([...currentPerProduct.keys(), ...desiredPerProduct.keys()]);
-    for (const productId of allProductIds) {
-      const currentQty = currentPerProduct.get(productId) ?? 0;
-      const desiredQty = desiredPerProduct.get(productId) ?? 0;
-      const delta = desiredQty - currentQty;
-
-      if (delta > 0) {
-        const product = productById.get(productId);
-        if (!product) {
-          throw new NotFoundException('Товар не найден');
-        }
-        await this.orderInventoryService.reserve(tx, {
-          product,
-          quantity: delta,
-          orderId: order.id,
-          currentUserId,
-        });
-      } else if (delta < 0) {
-        await this.orderInventoryService.release(tx, {
-          productId,
-          quantity: Math.abs(delta),
-          orderId: order.id,
-          currentUserId,
-        });
-      }
-    }
-
-    const desiredRows = items.map((item) => {
-      const product = productById.get(item.productId);
-      if (!product) {
-        throw new NotFoundException('Товар не найден');
-      }
-      const pricePerItem = this.toMoney(product.price);
-      const lineTotal = this.toMoney(pricePerItem.mul(item.quantity));
-      return {
-        orderId: order.id,
-        productId: item.productId,
-        quantity: item.quantity,
-        pricePerItem: pricePerItem.toFixed(2),
-        lineTotal: lineTotal.toFixed(2),
-        productNameSnapshot: product.name,
-        productStatusNameSnapshot: PRODUCT_AVAILABILITY_LABELS[product.availabilityStatus],
-        orderSourceNameSnapshot: product.orderSource?.name ?? null,
-        manufacturerNameSnapshot: product.manufacturer.name,
-        activeSubstanceNameSnapshot: product.activeSubstance.name,
-      };
-    });
-
-    const incomingIds = new Set(items.filter((item) => item.id !== undefined).map((item) => item.id as number));
-    const idsToDelete = order.items
-      .filter((existingItem) => !incomingIds.has(existingItem.id))
-      .map((existingItem) => existingItem.id);
-
-    if (idsToDelete.length) {
-      await tx.orderItem.deleteMany({
-        where: {
-          orderId: order.id,
-          id: { in: idsToDelete },
-        },
-      });
-    }
-
-    const rowsToCreate = desiredRows.filter((row, index) => items[index]?.id === undefined);
-    if (rowsToCreate.length) {
-      await tx.orderItem.createMany({ data: rowsToCreate });
-    }
-
-    const rowsToUpdate = desiredRows
-      .map((row, index) => ({ row, source: items[index] }))
-      .filter(
-        (entry): entry is { row: (typeof desiredRows)[number]; source: SaveOrderItemDto & { id: number } } =>
-          entry.source.id !== undefined,
-      );
-
-    if (rowsToUpdate.length) {
-      await Promise.all(
-        rowsToUpdate.map(async ({ row, source }) => {
-          const existingItem = existingById.get(source.id);
-          if (!existingItem) {
-            throw new NotFoundException(`Позиция заказа с id=${source.id} не найдена`);
-          }
-
-          const shouldUpdate =
-            existingItem.productId !== row.productId ||
-            existingItem.quantity !== row.quantity ||
-            existingItem.pricePerItem.toString() !== row.pricePerItem ||
-            existingItem.lineTotal.toString() !== row.lineTotal ||
-            existingItem.productNameSnapshot !== row.productNameSnapshot ||
-            existingItem.productStatusNameSnapshot !== row.productStatusNameSnapshot ||
-            (existingItem.orderSourceNameSnapshot ?? null) !== (row.orderSourceNameSnapshot ?? null) ||
-            existingItem.manufacturerNameSnapshot !== row.manufacturerNameSnapshot ||
-            existingItem.activeSubstanceNameSnapshot !== row.activeSubstanceNameSnapshot;
-
-          if (!shouldUpdate) {
-            return;
-          }
-
-          await tx.orderItem.update({
-            where: { id: source.id },
-            data: {
-              productId: row.productId,
-              quantity: row.quantity,
-              pricePerItem: row.pricePerItem,
-              lineTotal: row.lineTotal,
-              productNameSnapshot: row.productNameSnapshot,
-              productStatusNameSnapshot: row.productStatusNameSnapshot,
-              orderSourceNameSnapshot: row.orderSourceNameSnapshot,
-              manufacturerNameSnapshot: row.manufacturerNameSnapshot,
-              activeSubstanceNameSnapshot: row.activeSubstanceNameSnapshot,
-            },
-          });
-        }),
-      );
-    }
-
-    return desiredRows.map((row) => ({ lineTotal: row.lineTotal }));
-  }
-
-  private async reconcileProductReserves(tx: Prisma.TransactionClient, productIds: number[]) {
-    if (productIds.length === 0) return;
-
-    const [products, grouped] = await Promise.all([
-      tx.product.findMany({
-        where: { id: { in: productIds } },
-        select: { id: true, reservedQuantity: true },
-      }),
-      tx.orderItem.groupBy({
-        by: ['productId'],
-        where: { productId: { in: productIds } },
-        _sum: { quantity: true },
-      }),
-    ]);
-
-    const expectedByProduct = new Map<number, number>(
-      grouped.map((entry) => [entry.productId, Number(entry._sum.quantity ?? 0)]),
-    );
-
-    for (const product of products) {
-      const expected = expectedByProduct.get(product.id) ?? 0;
-      if (product.reservedQuantity === expected) continue;
-      await tx.product.update({
-        where: { id: product.id },
-        data: { reservedQuantity: expected },
-      });
-    }
   }
 
   private toMoney(value: Prisma.Decimal | Decimal | number | string) {
     return new Decimal(value as Decimal.Value).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
   }
 
-  private assertOrderHasItems(itemsCount: number) {
-    if (itemsCount <= 0) {
-      throw new BadRequestException('Заказ должен содержать хотя бы одну позицию');
+  private buildOrderBy(
+    query: OrderQueryDto,
+  ): Prisma.OrderOrderByWithRelationInput | Prisma.OrderOrderByWithRelationInput[] {
+    const sortBy = query.sortBy ?? 'createdAt';
+    const sortOrder = query.sortOrder ?? 'desc';
+
+    // Default "newest first" should be by creation time.
+    // Add a secondary sort by id for stable ordering when timestamps are equal.
+    if (sortBy === 'createdAt') {
+      return [{ createdAt: sortOrder }, { id: 'desc' }];
     }
+    if (sortBy === 'updatedAt') {
+      return [{ updatedAt: sortOrder }, { id: 'desc' }];
+    }
+    if (sortBy === 'totalPrice') {
+      return [{ totalPrice: sortOrder }, { id: 'desc' }];
+    }
+    if (sortBy === 'remainingAmount') {
+      return [{ remainingAmount: sortOrder }, { id: 'desc' }];
+    }
+    if (sortBy === 'actionStatusCode') {
+      return [
+        { actionStatus: { sortOrder } },
+        { actionStatus: { name: sortOrder } },
+        { id: 'desc' },
+      ];
+    }
+    if (sortBy === 'stateStatusCode') {
+      return [
+        { stateStatus: { sortOrder } },
+        { stateStatus: { name: sortOrder } },
+        { id: 'desc' },
+      ];
+    }
+    if (sortBy === 'assemblyStatusCode') {
+      return [
+        { assemblyStatus: { sortOrder } },
+        { assemblyStatus: { name: sortOrder } },
+        { id: 'desc' },
+      ];
+    }
+
+    return [{ createdAt: 'desc' }, { id: 'desc' }];
   }
 
-  private buildOrderBy(query: OrderQueryDto): Prisma.OrderOrderByWithRelationInput {
-    return {
-      [query.sortBy ?? 'createdAt']: query.sortOrder ?? 'desc',
-    } as Prisma.OrderOrderByWithRelationInput;
-  }
-
-  private buildOrderWhere(query: OrderQueryDto): Prisma.OrderWhereInput {
+  private buildOrderWhere(
+    query: OrderQueryDto,
+    allowedTableGroups: OrderTableGroupKey[],
+  ): Prisma.OrderWhereInput {
     const where: Record<string, unknown> = {};
 
     if (query.clientPhone !== undefined) {
       where.clientPhone = { contains: query.clientPhone, mode: 'insensitive' };
     }
-    if (query.countryId !== undefined) {
-      where.countryId = query.countryId;
-    }
     if (query.city !== undefined) {
       where.city = { contains: query.city, mode: 'insensitive' };
+    }
+    if (query.tableGroup !== undefined) {
+      (where as Record<string, unknown>).stateStatus = {
+        tableGroup: query.tableGroup as OrderTableGroupKey,
+      };
     }
     if (query.paymentStatus !== undefined) {
       where.paymentStatus = query.paymentStatus;
@@ -623,13 +565,10 @@ export class OrdersService {
     if (query.storagePlaceId !== undefined) {
       where.storagePlaceId = query.storagePlaceId;
     }
-    if (query.deliveryStatus !== undefined) {
-      where.deliveryStatus = query.deliveryStatus;
-    }
 
     const orderStatusesFilter = this.resolveOrderStatusesFilter(query);
     if (orderStatusesFilter) {
-      where.orderStatus = { in: orderStatusesFilter };
+      where.actionStatusCode = { in: orderStatusesFilter };
     }
 
     const createdAtFilter = this.buildCreatedAtFilter(query.dateFrom, query.dateTo);
@@ -640,15 +579,33 @@ export class OrdersService {
     if (query.search) {
       where.OR = [
         { clientPhone: { contains: query.search, mode: 'insensitive' } },
+        { clientFullName: { contains: query.search, mode: 'insensitive' } },
         { city: { contains: query.search, mode: 'insensitive' } },
         { address: { contains: query.search, mode: 'insensitive' } },
+        { productNameSnapshot: { contains: query.search, mode: 'insensitive' } },
       ];
+    }
+
+    if (allowedTableGroups.length > 0) {
+      const tableGroupRestriction: Prisma.OrderWhereInput = {};
+      (tableGroupRestriction as Record<string, unknown>).stateStatus = {
+        tableGroup: {
+          in: allowedTableGroups,
+        },
+      };
+      if (Array.isArray(where.AND)) {
+        where.AND.push(tableGroupRestriction);
+      } else if (where.AND) {
+        where.AND = [where.AND as Prisma.OrderWhereInput, tableGroupRestriction];
+      } else {
+        where.AND = [tableGroupRestriction];
+      }
     }
 
     return where as Prisma.OrderWhereInput;
   }
 
-  private resolveOrderStatusesFilter(query: OrderQueryDto): OrderStatusCode[] | undefined {
+  private resolveOrderStatusesFilter(query: OrderQueryDto): string[] | undefined {
     if (query.orderStatuses?.length) {
       return query.orderStatuses;
     }
@@ -663,63 +620,10 @@ export class OrdersService {
     };
   }
 
-  private buildCreateOrderData(
-    dto: CreateOrderDto,
-    totals: {
-      deliveryPrice: string;
-      itemsTotalPrice: string;
-      totalPrice: string;
-      paidAmount: string;
-      remainingAmount: string;
-    },
-  ): Prisma.OrderUncheckedCreateInput {
-    return {
-      clientPhone: dto.clientPhone.trim(),
-      countryId: dto.countryId,
-      city: dto.city.trim(),
-      address: dto.address.trim(),
-      deliveryStatus: dto.deliveryStatus,
-      deliveryPrice: totals.deliveryPrice,
-      itemsTotalPrice: totals.itemsTotalPrice,
-      totalPrice: totals.totalPrice,
-      paidAmount: totals.paidAmount,
-      remainingAmount: totals.remainingAmount,
-      paymentStatus: dto.paymentStatus,
-      orderStatus: dto.orderStatus,
-      ...(dto.storagePlaceId !== undefined ? { storagePlaceId: dto.storagePlaceId } : {}),
-      ...(dto.description !== undefined ? { description: dto.description.trim() } : {}),
-    } as unknown as Prisma.OrderUncheckedCreateInput;
-  }
-
-  private buildUpdateOrderData(
-    dto: UpdateOrderFullDto,
-    totals: {
-      itemsTotalPrice: string;
-      totalPrice: string;
-      remainingAmount: string;
-      paidAmount: string;
-      deliveryPrice: string;
-    },
-  ): Prisma.OrderUncheckedUpdateInput {
-    return {
-      ...(dto.clientPhone !== undefined ? { clientPhone: dto.clientPhone.trim() } : {}),
-      ...(dto.countryId !== undefined ? { countryId: dto.countryId } : {}),
-      ...(dto.city !== undefined ? { city: dto.city.trim() } : {}),
-      ...(dto.address !== undefined ? { address: dto.address.trim() } : {}),
-      ...(dto.deliveryStatus !== undefined ? { deliveryStatus: dto.deliveryStatus } : {}),
-      ...(dto.deliveryPrice !== undefined ? { deliveryPrice: totals.deliveryPrice } : {}),
-      ...(dto.paymentStatus !== undefined ? { paymentStatus: dto.paymentStatus } : {}),
-      ...(dto.orderStatus !== undefined ? { orderStatus: dto.orderStatus } : {}),
-      ...(dto.storagePlaceId !== undefined ? { storagePlaceId: dto.storagePlaceId } : {}),
-      ...(dto.description !== undefined ? { description: dto.description === null ? null : dto.description.trim() } : {}),
-      ...(dto.paidAmount !== undefined ? { paidAmount: totals.paidAmount } : {}),
-      itemsTotalPrice: totals.itemsTotalPrice,
-      totalPrice: totals.totalPrice,
-      remainingAmount: totals.remainingAmount,
-    } as unknown as Prisma.OrderUncheckedUpdateInput;
-  }
-
-  private async loadOrderFullOrThrow(db: PrismaService | Prisma.TransactionClient, orderId: number) {
+  private async loadOrderFullOrThrow(
+    db: PrismaService | Prisma.TransactionClient,
+    orderId: number,
+  ): Promise<FullOrder> {
     const order = await db.order.findUnique({
       where: { id: orderId },
       include: ORDER_FULL_INCLUDE,
@@ -736,6 +640,7 @@ export class OrdersService {
     query: OrderQueryDto,
     visibleFilters: OrderFilterKey[],
     fixedFilters: FixedOrderFilters,
+    allowedTableGroups: OrderTableGroupKey[],
   ): OrderQueryDto {
     const allowed = new Set<OrderFilterKey>(visibleFilters);
     const filtered: Partial<OrderQueryDto> = {};
@@ -754,20 +659,22 @@ export class OrdersService {
     filtered.sortBy = query.sortBy;
     filtered.sortOrder = query.sortOrder;
 
-    if (fixedFilters.countryId !== undefined) {
-      filtered.countryId = fixedFilters.countryId;
-    }
     if (fixedFilters.city !== undefined) {
       filtered.city = fixedFilters.city;
     }
     if (fixedFilters.orderStatus !== undefined) {
       filtered.orderStatus = fixedFilters.orderStatus as OrderQueryDto['orderStatus'];
     }
-    if (fixedFilters.deliveryStatuses && fixedFilters.deliveryStatuses.length > 0) {
-      const requested = filtered.deliveryStatus;
-      if (!requested || !fixedFilters.deliveryStatuses.includes(requested)) {
-        filtered.deliveryStatus = fixedFilters.deliveryStatuses[0] as OrderQueryDto['deliveryStatus'];
-      }
+    if (fixedFilters.tableGroup !== undefined) {
+      filtered.tableGroup = fixedFilters.tableGroup;
+    }
+
+    if (
+      filtered.tableGroup !== undefined &&
+      allowedTableGroups.length > 0 &&
+      !allowedTableGroups.includes(filtered.tableGroup as OrderTableGroupKey)
+    ) {
+      filtered.tableGroup = undefined;
     }
 
     return filtered as OrderQueryDto;
@@ -783,5 +690,106 @@ export class OrdersService {
     }
 
     return dto;
+  }
+
+  private async getStatusConfig(
+    db: PrismaService | Prisma.TransactionClient,
+    code: string,
+    type: 'ACTION' | 'STATE',
+  ) {
+    const statusDelegate = (
+      db as unknown as {
+        orderStatusConfig: {
+          findFirst: (args: {
+            where: { code: string; type: 'ACTION' | 'STATE'; isActive: boolean };
+          }) => Promise<OrderStatusConfig | null>;
+        };
+      }
+    ).orderStatusConfig;
+
+    const status = await statusDelegate.findFirst({
+      where: { code, type, isActive: true },
+    });
+    if (!status) {
+      throw new NotFoundException(`Статус ${code} (${type}) не найден`);
+    }
+    return status;
+  }
+
+  private resolvePaymentDates(
+    current:
+      | {
+          paymentStatus: PaymentStatusCode;
+          prepaymentDate: Date | null;
+          paymentDate: Date | null;
+        }
+      | undefined,
+    nextStatus: PaymentStatusCode,
+    now: Date,
+  ) {
+    if (nextStatus === PaymentStatusCode.UNPAID) {
+      return { prepaymentDate: null, paymentDate: null };
+    }
+    if (nextStatus === PaymentStatusCode.PREPAID_50) {
+      return {
+        prepaymentDate: current?.prepaymentDate ?? now,
+        paymentDate: null,
+      };
+    }
+    return {
+      prepaymentDate: current?.prepaymentDate ?? now,
+      paymentDate: current?.paymentDate ?? now,
+    };
+  }
+
+  private async applyStatusInventoryAutomation(
+    tx: Prisma.TransactionClient,
+    params: {
+      orderId: number;
+      productId: number;
+      quantity: number;
+      currentUserId?: number;
+      previousActionStatus: OrderStatusConfig | null;
+      nextActionStatus: OrderStatusConfig;
+    },
+  ) {
+    const wasReserve = params.previousActionStatus?.reserveOnSet ?? false;
+    const nowReserve = params.nextActionStatus.reserveOnSet;
+    if (!wasReserve && nowReserve) {
+      const product = await tx.product.findUniqueOrThrow({ where: { id: params.productId } });
+      await this.orderInventoryService.reserve(tx, {
+        product,
+        quantity: params.quantity,
+        orderId: params.orderId,
+        currentUserId: params.currentUserId,
+      });
+    }
+    if (wasReserve && !nowReserve) {
+      await this.orderInventoryService.release(tx, {
+        productId: params.productId,
+        quantity: params.quantity,
+        orderId: params.orderId,
+        currentUserId: params.currentUserId,
+      });
+    }
+
+    const wasWriteOff = params.previousActionStatus?.writeOffOnSet ?? false;
+    const nowWriteOff = params.nextActionStatus.writeOffOnSet;
+    if (!wasWriteOff && nowWriteOff) {
+      await this.orderInventoryService.writeOff(tx, {
+        productId: params.productId,
+        quantity: params.quantity,
+        orderId: params.orderId,
+        currentUserId: params.currentUserId,
+      });
+    }
+  }
+
+  private withOrderTransaction<T>(
+    run: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    return this.prisma
+      .$transaction(async (tx) => run(tx), { timeout: 15000 })
+      .catch((error) => this.prismaErrorMapper.rethrow(error));
   }
 }

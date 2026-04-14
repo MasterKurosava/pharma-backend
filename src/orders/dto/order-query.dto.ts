@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { DeliveryStatusCode, OrderStatusCode, PaymentStatusCode } from '@prisma/client';
+import { PaymentStatusCode } from '@prisma/client';
 import { IsEnum, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
 
 export class OrderQueryDto {
@@ -12,22 +12,21 @@ export class OrderQueryDto {
   clientPhone?: string;
 
   @IsOptional()
-  @Transform(({ value }) => (value === undefined ? value : Number(value)))
-  @IsInt()
-  @Min(1)
-  countryId?: number;
-
   @IsOptional()
   @IsString()
   city?: string;
+
+  @IsOptional()
+  @IsString()
+  tableGroup?: string;
 
   @IsOptional()
   @IsEnum(PaymentStatusCode)
   paymentStatus?: PaymentStatusCode;
 
   @IsOptional()
-  @IsEnum(OrderStatusCode)
-  orderStatus?: OrderStatusCode;
+  @IsString()
+  orderStatus?: string;
 
   @IsOptional()
   @Transform(({ value }) => {
@@ -43,18 +42,14 @@ export class OrderQueryDto {
       .map((entry) => entry.trim())
       .filter(Boolean);
   })
-  @IsEnum(OrderStatusCode, { each: true })
-  orderStatuses?: OrderStatusCode[];
+  @IsString({ each: true })
+  orderStatuses?: string[];
 
   @IsOptional()
   @Transform(({ value }) => (value === undefined ? value : Number(value)))
   @IsInt()
   @Min(1)
   storagePlaceId?: number;
-
-  @IsOptional()
-  @IsEnum(DeliveryStatusCode)
-  deliveryStatus?: DeliveryStatusCode;
 
   @IsOptional()
   @IsString()
@@ -78,8 +73,23 @@ export class OrderQueryDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(['createdAt', 'updatedAt', 'totalPrice', 'remainingAmount'])
-  sortBy?: 'createdAt' | 'updatedAt' | 'totalPrice' | 'remainingAmount';
+  @IsIn([
+    'createdAt',
+    'updatedAt',
+    'totalPrice',
+    'remainingAmount',
+    'actionStatusCode',
+    'stateStatusCode',
+    'assemblyStatusCode',
+  ])
+  sortBy?:
+    | 'createdAt'
+    | 'updatedAt'
+    | 'totalPrice'
+    | 'remainingAmount'
+    | 'actionStatusCode'
+    | 'stateStatusCode'
+    | 'assemblyStatusCode';
 
   @IsOptional()
   @IsString()

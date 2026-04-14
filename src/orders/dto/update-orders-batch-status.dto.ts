@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsEnum, IsInt, IsOptional, Min } from 'class-validator';
-import { DeliveryStatusCode, OrderStatusCode, PaymentStatusCode } from '@prisma/client';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsEnum, IsInt, IsOptional, IsString, Length, Min } from 'class-validator';
+import { PaymentStatusCode } from '@prisma/client';
 
 export class UpdateOrdersBatchStatusDto {
   @IsArray()
@@ -12,12 +12,14 @@ export class UpdateOrdersBatchStatusDto {
   ids!: number[];
 
   @IsOptional()
-  @IsEnum(OrderStatusCode)
-  orderStatus?: OrderStatusCode;
+  @IsString()
+  @Length(1, 80)
+  actionStatusCode?: string;
 
   @IsOptional()
-  @IsEnum(DeliveryStatusCode)
-  deliveryStatus?: DeliveryStatusCode;
+  @IsString()
+  @Length(1, 80)
+  stateStatusCode?: string;
 
   @IsOptional()
   @IsEnum(PaymentStatusCode)

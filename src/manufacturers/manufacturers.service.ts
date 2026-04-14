@@ -65,20 +65,9 @@ export class ManufacturersService {
   }
 
   async create(dto: CreateManufacturerDto) {
-    if (dto.countryId !== undefined) {
-      const related = await this.prisma.country.findUnique({
-        where: { id: dto.countryId },
-      });
-
-      if (!related) {
-        throw new NotFoundException('Страна не найден');
-      }
-    }
-
     return this.prisma.manufacturer.create({
       data: {
         name: dto.name.trim(),
-        ...(dto.countryId !== undefined ? { countryId: dto.countryId } : {}),
         isActive: dto.isActive ?? true,
       },
     });
@@ -87,21 +76,10 @@ export class ManufacturersService {
   async update(id: number, dto: UpdateManufacturerDto) {
     await this.findById(id);
 
-    if (dto.countryId !== undefined) {
-      const related = await this.prisma.country.findUnique({
-        where: { id: dto.countryId },
-      });
-
-      if (!related) {
-        throw new NotFoundException('Страна не найден');
-      }
-    }
-
     return this.prisma.manufacturer.update({
       where: { id },
       data: {
         ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
-        ...(dto.countryId !== undefined ? { countryId: dto.countryId } : {}),
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
       },
     });

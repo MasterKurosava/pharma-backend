@@ -1,5 +1,6 @@
-import { RequestMethod, ValidationPipe } from '@nestjs/common';
+import { BadRequestException, RequestMethod, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { ValidationError } from 'class-validator';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -24,6 +25,29 @@ async function bootstrap() {
       whitelist: true,
       transform: true,
       forbidNonWhitelisted: true,
+      exceptionFactory: (errors: ValidationError[]) => {
+        const fieldErrors: Record<string, string[]> = {};
+
+        const walk = (errList: ValidationError[], prefix = '') => {
+          for (const err of errList) {
+            const path = prefix ? `${prefix}.${err.property}` : err.property;
+            const constraints = err.constraints ? Object.values(err.constraints).filter(Boolean) : [];
+            if (constraints.length) {
+              fieldErrors[path] = (fieldErrors[path] ?? []).concat(constraints);
+            }
+            if (err.children?.length) {
+              walk(err.children, path);
+            }
+          }
+        };
+
+        walk(errors);
+
+        return new BadRequestException({
+          message: 'Validation failed',
+          fieldErrors,
+        });
+      },
     }),
   );
 

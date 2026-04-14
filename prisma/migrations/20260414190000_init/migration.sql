@@ -2,16 +2,16 @@
 CREATE SCHEMA IF NOT EXISTS "public";
 
 -- CreateEnum
-CREATE TYPE "OrderStatusCode" AS ENUM ('ORDER', 'DELIVERY_REGISTRATION', 'ADDRESS_REQUIRED', 'ASSEMBLY_REQUIRED', 'ASSEMBLED_WRITTEN_OFF', 'PACKED', 'CLOSED');
-
--- CreateEnum
-CREATE TYPE "DeliveryStatusCode" AS ENUM ('COLLECT_DOVAS', 'COLLECT_PONY', 'COLLECT_YANDEX');
-
--- CreateEnum
 CREATE TYPE "PaymentStatusCode" AS ENUM ('UNPAID', 'PREPAID_50', 'PAID');
 
 -- CreateEnum
 CREATE TYPE "ProductAvailabilityStatus" AS ENUM ('OUT_OF_STOCK', 'ON_REQUEST', 'IN_STOCK');
+
+-- CreateEnum
+CREATE TYPE "OrderStatusType" AS ENUM ('ACTION', 'STATE', 'ASSEMBLY');
+
+-- CreateEnum
+CREATE TYPE "OrderTableGroup" AS ENUM ('REQUESTS', 'PICKUP', 'ALMATY_DELIVERY', 'RK_DELIVERY', 'ARCHIVE');
 
 -- CreateTable
 CREATE TABLE "Role" (
@@ -19,6 +19,8 @@ CREATE TABLE "Role" (
     "name" TEXT NOT NULL,
     "code" TEXT NOT NULL,
     "isSystem" BOOLEAN NOT NULL DEFAULT false,
+    "allowedRoutes" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "allowedOrderTableGroups" "OrderTableGroup"[] DEFAULT ARRAY[]::"OrderTableGroup"[],
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
@@ -44,22 +46,9 @@ CREATE TABLE "User" (
 );
 
 -- CreateTable
-CREATE TABLE "Country" (
-    "id" SERIAL NOT NULL,
-    "code" TEXT,
-    "name" TEXT NOT NULL,
-    "isActive" BOOLEAN NOT NULL DEFAULT true,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "Country_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
 CREATE TABLE "Manufacturer" (
     "id" SERIAL NOT NULL,
     "name" TEXT NOT NULL,
-    "countryId" INTEGER,
     "isActive" BOOLEAN NOT NULL DEFAULT true,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -139,46 +128,72 @@ CREATE TABLE "StoragePlace" (
 );
 
 -- CreateTable
+CREATE TABLE "OrderStatusConfig" (
+    "id" SERIAL NOT NULL,
+    "code" TEXT NOT NULL,
+    "type" "OrderStatusType" NOT NULL,
+    "name" TEXT NOT NULL,
+    "color" TEXT,
+    "tableGroup" "OrderTableGroup",
+    "reserveOnSet" BOOLEAN NOT NULL DEFAULT false,
+    "writeOffOnSet" BOOLEAN NOT NULL DEFAULT false,
+    "setAssemblyDateOnSet" BOOLEAN NOT NULL DEFAULT false,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "sortOrder" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "OrderStatusConfig_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "AssemblyStatus" (
+    "id" SERIAL NOT NULL,
+    "code" TEXT NOT NULL,
+    "name" TEXT NOT NULL,
+    "color" TEXT,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "sortOrder" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "AssemblyStatus_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "Order" (
     "id" SERIAL NOT NULL,
     "orderDate" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "clientPhone" TEXT NOT NULL,
-    "countryId" INTEGER NOT NULL,
-    "city" TEXT NOT NULL,
-    "address" TEXT NOT NULL,
-    "deliveryStatus" "DeliveryStatusCode" NOT NULL DEFAULT 'COLLECT_DOVAS',
+    "clientFullName" TEXT,
+    "city" TEXT,
+    "address" TEXT,
     "deliveryPrice" DECIMAL(10,2) NOT NULL DEFAULT 0,
     "itemsTotalPrice" DECIMAL(10,2) NOT NULL DEFAULT 0,
     "totalPrice" DECIMAL(10,2) NOT NULL DEFAULT 0,
-    "paidAmount" DECIMAL(10,2) NOT NULL DEFAULT 0,
     "remainingAmount" DECIMAL(10,2) NOT NULL DEFAULT 0,
     "paymentStatus" "PaymentStatusCode" NOT NULL DEFAULT 'UNPAID',
-    "orderStatus" "OrderStatusCode" NOT NULL DEFAULT 'ORDER',
+    "prepaymentDate" TIMESTAMP(3),
+    "paymentDate" TIMESTAMP(3),
+    "assemblyDate" TIMESTAMP(3),
+    "actionStatusCode" TEXT NOT NULL,
+    "stateStatusCode" TEXT NOT NULL,
+    "assemblyStatusCode" TEXT,
     "storagePlaceId" INTEGER,
+    "orderStorage" TEXT,
     "description" TEXT,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "Order_pkey" PRIMARY KEY ("id")
-);
-
--- CreateTable
-CREATE TABLE "OrderItem" (
-    "id" SERIAL NOT NULL,
-    "orderId" INTEGER NOT NULL,
     "productId" INTEGER NOT NULL,
     "productNameSnapshot" TEXT NOT NULL,
     "productStatusNameSnapshot" TEXT NOT NULL,
     "orderSourceNameSnapshot" TEXT,
     "manufacturerNameSnapshot" TEXT NOT NULL,
     "activeSubstanceNameSnapshot" TEXT NOT NULL,
+    "productPrice" DECIMAL(10,2) NOT NULL,
     "quantity" INTEGER NOT NULL,
-    "pricePerItem" DECIMAL(10,2) NOT NULL,
-    "lineTotal" DECIMAL(10,2) NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
-    CONSTRAINT "OrderItem_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "Order_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
@@ -195,12 +210,6 @@ CREATE UNIQUE INDEX "User_email_key" ON "User"("email");
 
 -- CreateIndex
 CREATE INDEX "User_roleId_idx" ON "User"("roleId");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Country_code_key" ON "Country"("code");
-
--- CreateIndex
-CREATE INDEX "Manufacturer_countryId_idx" ON "Manufacturer"("countryId");
 
 -- CreateIndex
 CREATE INDEX "Product_manufacturerId_idx" ON "Product"("manufacturerId");
@@ -227,7 +236,19 @@ CREATE INDEX "ProductStockMovement_type_idx" ON "ProductStockMovement"("type");
 CREATE INDEX "ProductStockMovement_createdAt_idx" ON "ProductStockMovement"("createdAt");
 
 -- CreateIndex
-CREATE INDEX "Order_countryId_idx" ON "Order"("countryId");
+CREATE UNIQUE INDEX "OrderStatusConfig_code_key" ON "OrderStatusConfig"("code");
+
+-- CreateIndex
+CREATE INDEX "OrderStatusConfig_type_isActive_idx" ON "OrderStatusConfig"("type", "isActive");
+
+-- CreateIndex
+CREATE INDEX "OrderStatusConfig_tableGroup_isActive_idx" ON "OrderStatusConfig"("tableGroup", "isActive");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "AssemblyStatus_code_key" ON "AssemblyStatus"("code");
+
+-- CreateIndex
+CREATE INDEX "AssemblyStatus_isActive_sortOrder_idx" ON "AssemblyStatus"("isActive", "sortOrder");
 
 -- CreateIndex
 CREATE INDEX "Order_city_idx" ON "Order"("city");
@@ -236,16 +257,22 @@ CREATE INDEX "Order_city_idx" ON "Order"("city");
 CREATE INDEX "Order_storagePlaceId_idx" ON "Order"("storagePlaceId");
 
 -- CreateIndex
-CREATE INDEX "OrderItem_orderId_idx" ON "OrderItem"("orderId");
+CREATE INDEX "Order_paymentStatus_idx" ON "Order"("paymentStatus");
 
 -- CreateIndex
-CREATE INDEX "OrderItem_productId_idx" ON "OrderItem"("productId");
+CREATE INDEX "Order_actionStatusCode_idx" ON "Order"("actionStatusCode");
+
+-- CreateIndex
+CREATE INDEX "Order_stateStatusCode_idx" ON "Order"("stateStatusCode");
+
+-- CreateIndex
+CREATE INDEX "Order_assemblyStatusCode_idx" ON "Order"("assemblyStatusCode");
+
+-- CreateIndex
+CREATE INDEX "Order_productId_idx" ON "Order"("productId");
 
 -- AddForeignKey
 ALTER TABLE "User" ADD CONSTRAINT "User_roleId_fkey" FOREIGN KEY ("roleId") REFERENCES "Role"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "Manufacturer" ADD CONSTRAINT "Manufacturer_countryId_fkey" FOREIGN KEY ("countryId") REFERENCES "Country"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Product" ADD CONSTRAINT "Product_manufacturerId_fkey" FOREIGN KEY ("manufacturerId") REFERENCES "Manufacturer"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -266,14 +293,17 @@ ALTER TABLE "ProductStockMovement" ADD CONSTRAINT "ProductStockMovement_orderId_
 ALTER TABLE "ProductStockMovement" ADD CONSTRAINT "ProductStockMovement_createdByUserId_fkey" FOREIGN KEY ("createdByUserId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "Order" ADD CONSTRAINT "Order_countryId_fkey" FOREIGN KEY ("countryId") REFERENCES "Country"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "Order" ADD CONSTRAINT "Order_productId_fkey" FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Order" ADD CONSTRAINT "Order_actionStatusCode_fkey" FOREIGN KEY ("actionStatusCode") REFERENCES "OrderStatusConfig"("code") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Order" ADD CONSTRAINT "Order_stateStatusCode_fkey" FOREIGN KEY ("stateStatusCode") REFERENCES "OrderStatusConfig"("code") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Order" ADD CONSTRAINT "Order_assemblyStatusCode_fkey" FOREIGN KEY ("assemblyStatusCode") REFERENCES "AssemblyStatus"("code") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "Order" ADD CONSTRAINT "Order_storagePlaceId_fkey" FOREIGN KEY ("storagePlaceId") REFERENCES "StoragePlace"("id") ON DELETE SET NULL ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "OrderItem" ADD CONSTRAINT "OrderItem_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "Order"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "OrderItem" ADD CONSTRAINT "OrderItem_productId_fkey" FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
