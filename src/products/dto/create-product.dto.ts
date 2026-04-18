@@ -39,6 +39,15 @@ export class CreateProductDto {
   @Min(1)
   productOrderSourceId?: number;
 
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') return undefined;
+    return Number(value);
+  })
+  @IsInt()
+  @Min(1)
+  storagePlaceId?: number;
+
   @Transform(({ value }) => Number(value))
   @IsInt()
   @Min(0)

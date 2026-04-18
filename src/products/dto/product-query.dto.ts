@@ -40,6 +40,15 @@ export class ProductQueryDto {
 
   @IsOptional()
   @Transform(({ value }) => {
+    if (value === undefined) return value;
+    return Number(value);
+  })
+  @IsInt()
+  @Min(1)
+  storagePlaceId?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => {
     if (value === 'true') return true;
     if (value === 'false') return false;
     return value;

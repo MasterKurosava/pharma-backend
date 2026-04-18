@@ -306,13 +306,14 @@ async function runProductsChecks(ctx: Ctx) {
     'products/create invalid ON_REQUEST without source',
   );
 
-  const created = await apiRequest<{ id?: number }>('POST', `${ctx.baseUrl}/products`, ctx.token, {
+  const created = await apiRequest<{ id?: number; storagePlaceId?: number | null }>('POST', `${ctx.baseUrl}/products`, ctx.token, {
     name: `Smoke Product ${suffix}`,
     description: 'smoke product',
     manufacturerId: ctx.ids.manufacturerId,
     activeSubstanceId: ctx.ids.activeSubstanceId,
     availabilityStatus: 'ON_REQUEST',
     productOrderSourceId: ctx.ids.sourceId,
+    storagePlaceId: ctx.ids.storagePlaceId,
     stockQuantity: 40,
     reservedQuantity: 2,
     price: 2150.5,
@@ -320,11 +321,25 @@ async function runProductsChecks(ctx: Ctx) {
   });
   mustStatus(created, 201, 'products/create');
   if (!created.data?.id) throw new Error('products/create: id is missing');
+  if (created.data.storagePlaceId !== ctx.ids.storagePlaceId) {
+    throw new Error('products/create: expected storagePlaceId on product');
+  }
   ctx.ids.productId = created.data.id;
   rememberCreated(ctx, 'products', ctx.ids.productId);
 
   mustStatus(await apiRequest('GET', `${ctx.baseUrl}/products/${ctx.ids.productId}`, ctx.token), 200, 'products/get by id');
   mustStatus(await apiRequest('GET', `${ctx.baseUrl}/products?availabilityStatus=ON_REQUEST`, ctx.token), 200, 'products/list filtered');
+
+  const clearedStorage = await apiRequest<{ storagePlaceId?: number | null }>(
+    'PATCH',
+    `${ctx.baseUrl}/products/${ctx.ids.productId}`,
+    ctx.token,
+    { storagePlaceId: null },
+  );
+  mustStatus(clearedStorage, 200, 'products/update clear storage place');
+  if (clearedStorage.data?.storagePlaceId != null) {
+    throw new Error('products/update: expected storagePlaceId null');
+  }
 
   mustStatus(
     await apiRequest('PATCH', `${ctx.baseUrl}/products/${ctx.ids.productId}`, ctx.token, {

@@ -1,12 +1,25 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { EntityExistenceService } from '../common/prechecks/entity-existence.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductAvailabilityStatus } from '@prisma/client';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class ProductPrecheckService {
-  constructor(private readonly existence: EntityExistenceService) {}
+  constructor(
+    private readonly existence: EntityExistenceService,
+    private readonly prisma: PrismaService,
+  ) {}
+
+  private async ensureActiveStoragePlace(storagePlaceId: number) {
+    const place = await this.prisma.storagePlace.findFirst({
+      where: { id: storagePlaceId, isActive: true },
+    });
+    if (!place) {
+      throw new NotFoundException('Место хранения не найдено');
+    }
+  }
 
   async loadCreateContext(dto: CreateProductDto, db: any) {
     const [manufacturer, activeSubstance, orderSource] = await Promise.all([
@@ -26,6 +39,10 @@ export class ProductPrecheckService {
           )
         : Promise.resolve(null),
     ]);
+
+    if (dto.storagePlaceId !== undefined) {
+      await this.ensureActiveStoragePlace(dto.storagePlaceId);
+    }
 
     return { manufacturer, activeSubstance, orderSource };
   }
@@ -57,6 +74,9 @@ export class ProductPrecheckService {
           db,
         ),
       );
+    }
+    if (dto.storagePlaceId !== undefined && dto.storagePlaceId !== null) {
+      checks.push(this.ensureActiveStoragePlace(dto.storagePlaceId));
     }
 
     await Promise.all(checks);
