@@ -91,6 +91,7 @@ const MANAGER_ROUTES = [
   '/active-substances',
   '/product-order-sources',
   '/storage-places',
+  '/product-storage-places',
   '/order-statuses-action',
   '/order-statuses-state',
 ];

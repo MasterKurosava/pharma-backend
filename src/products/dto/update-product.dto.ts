@@ -3,7 +3,7 @@ import { Transform } from 'class-transformer';
 import { IsInt, IsOptional, Min, ValidateIf } from 'class-validator';
 import { CreateProductDto } from './create-product.dto';
 
-class UpdateProductStoragePlaceDto {
+class UpdateProductProductStoragePlaceDto {
   @IsOptional()
   @Transform(({ value }) => {
     if (value === undefined) return undefined;
@@ -13,10 +13,10 @@ class UpdateProductStoragePlaceDto {
   @ValidateIf((_, v) => v !== null && v !== undefined)
   @IsInt()
   @Min(1)
-  storagePlaceId?: number | null;
+  productStoragePlaceId?: number | null;
 }
 
 export class UpdateProductDto extends IntersectionType(
-  PartialType(OmitType(CreateProductDto, ['storagePlaceId'] as const)),
-  UpdateProductStoragePlaceDto,
+  PartialType(OmitType(CreateProductDto, ['productStoragePlaceId'] as const)),
+  UpdateProductProductStoragePlaceDto,
 ) {}

@@ -12,12 +12,12 @@ export class ProductPrecheckService {
     private readonly prisma: PrismaService,
   ) {}
 
-  private async ensureActiveStoragePlace(storagePlaceId: number) {
-    const place = await this.prisma.storagePlace.findFirst({
-      where: { id: storagePlaceId, isActive: true },
+  private async ensureActiveProductStoragePlace(productStoragePlaceId: number) {
+    const place = await this.prisma.productStoragePlace.findFirst({
+      where: { id: productStoragePlaceId, isActive: true },
     });
     if (!place) {
-      throw new NotFoundException('Место хранения не найдено');
+      throw new NotFoundException('Место хранения препарата не найдено');
     }
   }
 
@@ -40,8 +40,8 @@ export class ProductPrecheckService {
         : Promise.resolve(null),
     ]);
 
-    if (dto.storagePlaceId !== undefined) {
-      await this.ensureActiveStoragePlace(dto.storagePlaceId);
+    if (dto.productStoragePlaceId !== undefined) {
+      await this.ensureActiveProductStoragePlace(dto.productStoragePlaceId);
     }
 
     return { manufacturer, activeSubstance, orderSource };
@@ -75,8 +75,8 @@ export class ProductPrecheckService {
         ),
       );
     }
-    if (dto.storagePlaceId !== undefined && dto.storagePlaceId !== null) {
-      checks.push(this.ensureActiveStoragePlace(dto.storagePlaceId));
+    if (dto.productStoragePlaceId !== undefined && dto.productStoragePlaceId !== null) {
+      checks.push(this.ensureActiveProductStoragePlace(dto.productStoragePlaceId));
     }
 
     await Promise.all(checks);

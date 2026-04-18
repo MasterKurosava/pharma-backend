@@ -9,6 +9,7 @@ import { ManufacturersModule } from './manufacturers/manufacturers.module';
 import { ActiveSubstancesModule } from './active-substances/active-substances.module';
 import { ProductOrderSourcesModule } from './product-order-sources/product-order-sources.module';
 import { StoragePlacesModule } from './storage-places/storage-places.module';
+import { ProductStoragePlacesModule } from './product-storage-places/product-storage-places.module';
 import { ProductsModule } from './products/products.module';
 import { OrdersModule } from './orders/orders.module';
 import { OrderStatusConfigsModule } from './order-status-configs/order-status-configs.module';
@@ -39,6 +40,7 @@ import { HealthController } from './health.controller';
     ActiveSubstancesModule,
     ProductOrderSourcesModule,
     StoragePlacesModule,
+    ProductStoragePlacesModule,
     ProductsModule,
     OrdersModule,
     OrderStatusConfigsModule,

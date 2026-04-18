@@ -19,6 +19,7 @@ type Ctx = {
     activeSubstanceId: number;
     sourceId: number;
     storagePlaceId: number;
+    productStoragePlaceId: number;
     productId: number;
     orderId: number;
     roleId: number;
@@ -286,6 +287,18 @@ async function runDictionaryChecks(ctx: Ctx) {
     200,
     'storage-places/get by id',
   );
+
+  ctx.ids.productStoragePlaceId = await createEntity(
+    ctx,
+    'product-storage-places',
+    { name: `Smoke Product Storage ${suffix}`, description: 'Smoke product shelf', isActive: true },
+    'product-storage-places/create',
+  );
+  mustStatus(
+    await apiRequest('GET', `${ctx.baseUrl}/product-storage-places/${ctx.ids.productStoragePlaceId}`, ctx.token),
+    200,
+    'product-storage-places/get by id',
+  );
 }
 
 async function runProductsChecks(ctx: Ctx) {
@@ -306,14 +319,14 @@ async function runProductsChecks(ctx: Ctx) {
     'products/create invalid ON_REQUEST without source',
   );
 
-  const created = await apiRequest<{ id?: number; storagePlaceId?: number | null }>('POST', `${ctx.baseUrl}/products`, ctx.token, {
+  const created = await apiRequest<{ id?: number; productStoragePlaceId?: number | null }>('POST', `${ctx.baseUrl}/products`, ctx.token, {
     name: `Smoke Product ${suffix}`,
     description: 'smoke product',
     manufacturerId: ctx.ids.manufacturerId,
     activeSubstanceId: ctx.ids.activeSubstanceId,
     availabilityStatus: 'ON_REQUEST',
     productOrderSourceId: ctx.ids.sourceId,
-    storagePlaceId: ctx.ids.storagePlaceId,
+    productStoragePlaceId: ctx.ids.productStoragePlaceId,
     stockQuantity: 40,
     reservedQuantity: 2,
     price: 2150.5,
@@ -321,8 +334,8 @@ async function runProductsChecks(ctx: Ctx) {
   });
   mustStatus(created, 201, 'products/create');
   if (!created.data?.id) throw new Error('products/create: id is missing');
-  if (created.data.storagePlaceId !== ctx.ids.storagePlaceId) {
-    throw new Error('products/create: expected storagePlaceId on product');
+  if (created.data.productStoragePlaceId !== ctx.ids.productStoragePlaceId) {
+    throw new Error('products/create: expected productStoragePlaceId on product');
   }
   ctx.ids.productId = created.data.id;
   rememberCreated(ctx, 'products', ctx.ids.productId);
@@ -330,15 +343,15 @@ async function runProductsChecks(ctx: Ctx) {
   mustStatus(await apiRequest('GET', `${ctx.baseUrl}/products/${ctx.ids.productId}`, ctx.token), 200, 'products/get by id');
   mustStatus(await apiRequest('GET', `${ctx.baseUrl}/products?availabilityStatus=ON_REQUEST`, ctx.token), 200, 'products/list filtered');
 
-  const clearedStorage = await apiRequest<{ storagePlaceId?: number | null }>(
+  const clearedStorage = await apiRequest<{ productStoragePlaceId?: number | null }>(
     'PATCH',
     `${ctx.baseUrl}/products/${ctx.ids.productId}`,
     ctx.token,
-    { storagePlaceId: null },
+    { productStoragePlaceId: null },
   );
-  mustStatus(clearedStorage, 200, 'products/update clear storage place');
-  if (clearedStorage.data?.storagePlaceId != null) {
-    throw new Error('products/update: expected storagePlaceId null');
+  mustStatus(clearedStorage, 200, 'products/update clear product storage place');
+  if (clearedStorage.data?.productStoragePlaceId != null) {
+    throw new Error('products/update: expected productStoragePlaceId null');
   }
 
   mustStatus(
@@ -539,6 +552,7 @@ async function main() {
       activeSubstanceId: 0,
       sourceId: 0,
       storagePlaceId: 0,
+      productStoragePlaceId: 0,
       productId: 0,
       orderId: 0,
       roleId: 0,

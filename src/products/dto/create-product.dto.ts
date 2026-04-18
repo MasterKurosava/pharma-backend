@@ -46,7 +46,7 @@ export class CreateProductDto {
   })
   @IsInt()
   @Min(1)
-  storagePlaceId?: number;
+  productStoragePlaceId?: number;
 
   @Transform(({ value }) => Number(value))
   @IsInt()

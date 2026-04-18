@@ -78,6 +78,7 @@ const ROLE_ACCESS_DEFAULTS: Record<
       '/active-substances',
       '/product-order-sources',
       '/storage-places',
+      '/product-storage-places',
       '/order-statuses-action',
       '/order-statuses-state',
     ],

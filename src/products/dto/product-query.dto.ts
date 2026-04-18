@@ -45,7 +45,7 @@ export class ProductQueryDto {
   })
   @IsInt()
   @Min(1)
-  storagePlaceId?: number;
+  productStoragePlaceId?: number;
 
   @IsOptional()
   @Transform(({ value }) => {

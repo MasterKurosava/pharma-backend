@@ -108,7 +108,7 @@ model Product {
   activeSubstanceId    Int
   availabilityStatus   ProductAvailabilityStatus @default(IN_STOCK)
   productOrderSourceId Int?
-  storagePlaceId       Int?
+  productStoragePlaceId Int?
   stockQuantity        Int      @default(0)
   reservedQuantity     Int      @default(0)
   price                Decimal  @db.Decimal(10, 2)
@@ -119,7 +119,7 @@ model Product {
   manufacturer Manufacturer      @relation(fields: [manufacturerId], references: [id])
   activeSubstance ActiveSubstance @relation(fields: [activeSubstanceId], references: [id])
   orderSource ProductOrderSource? @relation(fields: [productOrderSourceId], references: [id])
-  storagePlace StoragePlace?      @relation(fields: [storagePlaceId], references: [id])
+  productStoragePlace ProductStoragePlace? @relation(fields: [productStoragePlaceId], references: [id])
 
   orders Order[]
   stockMovements ProductStockMovement[]
@@ -127,7 +127,18 @@ model Product {
   @@index([manufacturerId])
   @@index([activeSubstanceId])
   @@index([productOrderSourceId])
-  @@index([storagePlaceId])
+  @@index([productStoragePlaceId])
+}
+
+model ProductStoragePlace {
+  id          Int      @id @default(autoincrement())
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  products Product[]
 }
 
 model ProductStockMovement {
@@ -160,8 +171,7 @@ model StoragePlace {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  orders   Order[]
-  products Product[]
+  orders Order[]
 }
 
 model OrderStatusConfig {

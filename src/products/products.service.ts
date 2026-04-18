@@ -25,7 +25,7 @@ export class ProductsService {
       ...(query.productOrderSourceId !== undefined
         ? { productOrderSourceId: query.productOrderSourceId }
         : {}),
-      ...(query.storagePlaceId !== undefined ? { storagePlaceId: query.storagePlaceId } : {}),
+      ...(query.productStoragePlaceId !== undefined ? { productStoragePlaceId: query.productStoragePlaceId } : {}),
       ...(query.search
         ? {
             OR: [
@@ -46,7 +46,7 @@ export class ProductsService {
         manufacturer: true,
         activeSubstance: true,
         orderSource: true,
-        storagePlace: true,
+        productStoragePlace: true,
       },
       orderBy: [{ name: 'asc' }],
       ...(query.page !== undefined || query.pageSize !== undefined
@@ -81,7 +81,7 @@ export class ProductsService {
         manufacturer: true,
         activeSubstance: true,
         orderSource: true,
-        storagePlace: true,
+        productStoragePlace: true,
       },
     });
 
@@ -107,7 +107,9 @@ export class ProductsService {
           activeSubstanceId: dto.activeSubstanceId,
           availabilityStatus: dto.availabilityStatus,
           ...(dto.productOrderSourceId !== undefined ? { productOrderSourceId: dto.productOrderSourceId } : { productOrderSourceId: null }),
-          ...(dto.storagePlaceId !== undefined ? { storagePlaceId: dto.storagePlaceId } : { storagePlaceId: null }),
+          ...(dto.productStoragePlaceId !== undefined
+            ? { productStoragePlaceId: dto.productStoragePlaceId }
+            : { productStoragePlaceId: null }),
           stockQuantity: dto.stockQuantity,
           reservedQuantity: dto.reservedQuantity,
           price: dto.price,
@@ -117,7 +119,7 @@ export class ProductsService {
           manufacturer: true,
           activeSubstance: true,
           orderSource: true,
-          storagePlace: true,
+          productStoragePlace: true,
         },
       });
 
@@ -134,7 +136,7 @@ export class ProductsService {
         manufacturer: true,
         activeSubstance: true,
         orderSource: true,
-        storagePlace: true,
+        productStoragePlace: true,
       },
     });
 
@@ -174,7 +176,7 @@ export class ProductsService {
             : dto.productOrderSourceId !== undefined
               ? { productOrderSourceId: dto.productOrderSourceId }
               : {}),
-          ...(dto.storagePlaceId !== undefined ? { storagePlaceId: dto.storagePlaceId } : {}),
+          ...(dto.productStoragePlaceId !== undefined ? { productStoragePlaceId: dto.productStoragePlaceId } : {}),
           ...(dto.stockQuantity !== undefined ? { stockQuantity: dto.stockQuantity } : {}),
           ...(dto.reservedQuantity !== undefined ? { reservedQuantity: dto.reservedQuantity } : {}),
           ...(dto.price !== undefined ? { price: dto.price } : {}),
@@ -184,7 +186,7 @@ export class ProductsService {
           manufacturer: true,
           activeSubstance: true,
           orderSource: true,
-          storagePlace: true,
+          productStoragePlace: true,
         },
       });
 
@@ -213,7 +215,7 @@ export class ProductsService {
           manufacturer: true,
           activeSubstance: true,
           orderSource: true,
-          storagePlace: true,
+          productStoragePlace: true,
         },
       });
 
