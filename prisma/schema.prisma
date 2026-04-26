@@ -180,7 +180,7 @@ model OrderStatusConfig {
   type                  OrderStatusType
   name                  String
   color                 String?
-  tableGroup            OrderTableGroup?
+  tableGroups           OrderTableGroup[] @default([])
   reserveOnSet          Boolean         @default(false)
   writeOffOnSet         Boolean         @default(false)
   setAssemblyDateOnSet  Boolean         @default(false)
@@ -193,7 +193,7 @@ model OrderStatusConfig {
   stateOrders  Order[] @relation("OrderStateStatus")
 
   @@index([type, isActive])
-  @@index([tableGroup, isActive])
+  @@index([isActive])
 }
 
 model AssemblyStatus {

@@ -30,7 +30,7 @@ export class OrderStatusConfigsController {
     return this.service.findById(id);
   }
 
-  @Roles('admin')
+  @Roles('admin', 'manager')
   @Patch(':id')
   update(
     @Param('id', ParseIntPipe) id: number,

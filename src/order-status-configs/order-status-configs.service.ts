@@ -40,7 +40,7 @@ export class OrderStatusConfigsService {
       data: {
         ...(dto.name !== undefined ? { name: dto.name.trim() } : {}),
         ...(dto.color !== undefined ? { color: dto.color?.trim() || null } : {}),
-        ...(dto.tableGroup !== undefined ? { tableGroup: dto.tableGroup } : {}),
+        ...(dto.tableGroups !== undefined ? { tableGroups: dto.tableGroups } : {}),
         ...(dto.reserveOnSet !== undefined ? { reserveOnSet: dto.reserveOnSet } : {}),
         ...(dto.writeOffOnSet !== undefined ? { writeOffOnSet: dto.writeOffOnSet } : {}),
         ...(dto.setAssemblyDateOnSet !== undefined

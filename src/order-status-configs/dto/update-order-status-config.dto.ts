@@ -1,5 +1,5 @@
 import { OrderTableGroup } from '@prisma/client';
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsEnum, IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
 export class UpdateOrderStatusConfigDto {
   @IsOptional()
@@ -13,8 +13,10 @@ export class UpdateOrderStatusConfigDto {
   color?: string | null;
 
   @IsOptional()
-  @IsEnum(OrderTableGroup)
-  tableGroup?: OrderTableGroup | null;
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsEnum(OrderTableGroup, { each: true })
+  tableGroups?: OrderTableGroup[];
 
   @IsOptional()
   @IsBoolean()

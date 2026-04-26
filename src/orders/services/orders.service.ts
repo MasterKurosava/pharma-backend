@@ -503,8 +503,6 @@ export class OrdersService {
     const sortBy = query.sortBy ?? 'createdAt';
     const sortOrder = query.sortOrder ?? 'desc';
 
-    // Default "newest first" should be by creation time.
-    // Add a secondary sort by id for stable ordering when timestamps are equal.
     if (sortBy === 'createdAt') {
       return [{ createdAt: sortOrder }, { id: 'desc' }];
     }
@@ -547,6 +545,15 @@ export class OrdersService {
     allowedTableGroups: OrderTableGroupKey[],
   ): Prisma.OrderWhereInput {
     const where: Record<string, unknown> = {};
+    const pushAnd = (condition: Prisma.OrderWhereInput) => {
+      if (Array.isArray(where.AND)) {
+        where.AND.push(condition);
+      } else if (where.AND) {
+        where.AND = [where.AND as Prisma.OrderWhereInput, condition];
+      } else {
+        where.AND = [condition];
+      }
+    };
 
     if (query.clientPhone !== undefined) {
       where.clientPhone = { contains: query.clientPhone, mode: 'insensitive' };
@@ -555,9 +562,12 @@ export class OrdersService {
       where.city = { contains: query.city, mode: 'insensitive' };
     }
     if (query.tableGroup !== undefined) {
-      (where as Record<string, unknown>).stateStatus = {
-        tableGroup: query.tableGroup as OrderTableGroupKey,
-      };
+      pushAnd({
+        OR: [
+          { stateStatus: { is: { tableGroups: { has: query.tableGroup as OrderTableGroupKey } } } },
+          { actionStatus: { is: { tableGroups: { has: query.tableGroup as OrderTableGroupKey } } } },
+        ],
+      });
     }
     if (query.paymentStatus !== undefined) {
       where.paymentStatus = query.paymentStatus;
@@ -587,19 +597,12 @@ export class OrdersService {
     }
 
     if (allowedTableGroups.length > 0) {
-      const tableGroupRestriction: Prisma.OrderWhereInput = {};
-      (tableGroupRestriction as Record<string, unknown>).stateStatus = {
-        tableGroup: {
-          in: allowedTableGroups,
-        },
-      };
-      if (Array.isArray(where.AND)) {
-        where.AND.push(tableGroupRestriction);
-      } else if (where.AND) {
-        where.AND = [where.AND as Prisma.OrderWhereInput, tableGroupRestriction];
-      } else {
-        where.AND = [tableGroupRestriction];
-      }
+      pushAnd({
+        OR: [
+          { stateStatus: { is: { tableGroups: { hasSome: allowedTableGroups } } } },
+          { actionStatus: { is: { tableGroups: { hasSome: allowedTableGroups } } } },
+        ],
+      });
     }
 
     return where as Prisma.OrderWhereInput;
