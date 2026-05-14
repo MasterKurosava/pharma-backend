@@ -679,7 +679,7 @@ export class OrdersService {
     };
 
     const copyStateStatusFilters = () => {
-      if (!allowed.has('stateStatuses') && !allowed.has('orderStatuses')) return;
+      if (!allowed.has('stateStatuses')) return;
       if (query.stateStatuses !== undefined) {
         filtered.stateStatuses = query.stateStatuses;
       }
@@ -688,7 +688,18 @@ export class OrdersService {
       }
     };
 
+    const allowsActionStatusQuery = () =>
+      allowed.has('orderStatuses') || allowed.has('orderStatus') || allowed.has('actionStatusCode');
+
     for (const entry of ORDER_FILTER_QUERY_MAP) {
+      const key = entry.filterKey;
+      if (key === 'orderStatuses' || key === 'orderStatus' || key === 'actionStatusCode') {
+        if (!allowsActionStatusQuery()) continue;
+        if (query[entry.queryKey] !== undefined) {
+          filtered[entry.queryKey] = query[entry.queryKey] as never;
+        }
+        continue;
+      }
       copyFilter(entry.queryKey, entry.filterKey);
     }
 
