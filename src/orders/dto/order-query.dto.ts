@@ -46,6 +46,31 @@ export class OrderQueryDto {
   orderStatuses?: string[];
 
   @IsOptional()
+  @IsString()
+  actionStatusCode?: string;
+
+  @IsOptional()
+  @IsString()
+  stateStatusCode?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') return undefined;
+    if (Array.isArray(value)) {
+      return value
+        .flatMap((entry) => String(entry).split(','))
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+    }
+    return String(value)
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  })
+  @IsString({ each: true })
+  stateStatuses?: string[];
+
+  @IsOptional()
   @Transform(({ value }) => (value === undefined ? value : Number(value)))
   @IsInt()
   @Min(1)

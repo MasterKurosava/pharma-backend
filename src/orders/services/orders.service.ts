@@ -563,10 +563,7 @@ export class OrdersService {
     }
     if (query.tableGroup !== undefined) {
       pushAnd({
-        OR: [
-          { stateStatus: { is: { tableGroups: { has: query.tableGroup as OrderTableGroupKey } } } },
-          { actionStatus: { is: { tableGroups: { has: query.tableGroup as OrderTableGroupKey } } } },
-        ],
+        stateStatus: { is: { tableGroups: { has: query.tableGroup as OrderTableGroupKey } } },
       });
     }
     if (query.paymentStatus !== undefined) {
@@ -581,27 +578,35 @@ export class OrdersService {
       where.actionStatusCode = { in: orderStatusesFilter };
     }
 
+    const stateStatusesFilter = this.resolveStateStatusesFilter(query);
+    if (stateStatusesFilter) {
+      where.stateStatusCode = { in: stateStatusesFilter };
+    }
+
     const createdAtFilter = this.buildCreatedAtFilter(query.dateFrom, query.dateTo);
     if (createdAtFilter) {
       where.createdAt = createdAtFilter;
     }
 
     if (query.search) {
-      where.OR = [
-        { clientPhone: { contains: query.search, mode: 'insensitive' } },
-        { clientFullName: { contains: query.search, mode: 'insensitive' } },
-        { city: { contains: query.search, mode: 'insensitive' } },
-        { address: { contains: query.search, mode: 'insensitive' } },
-        { productNameSnapshot: { contains: query.search, mode: 'insensitive' } },
+      const term = query.search.trim();
+      const orConditions: Prisma.OrderWhereInput[] = [
+        { clientPhone: { contains: term, mode: 'insensitive' } },
+        { clientFullName: { contains: term, mode: 'insensitive' } },
+        { city: { contains: term, mode: 'insensitive' } },
+        { address: { contains: term, mode: 'insensitive' } },
+        { productNameSnapshot: { contains: term, mode: 'insensitive' } },
       ];
+      const idCandidate = Number.parseInt(term, 10);
+      if (Number.isInteger(idCandidate) && idCandidate > 0 && String(idCandidate) === term) {
+        orConditions.push({ id: idCandidate });
+      }
+      where.OR = orConditions;
     }
 
     if (allowedTableGroups.length > 0) {
       pushAnd({
-        OR: [
-          { stateStatus: { is: { tableGroups: { hasSome: allowedTableGroups } } } },
-          { actionStatus: { is: { tableGroups: { hasSome: allowedTableGroups } } } },
-        ],
+        stateStatus: { is: { tableGroups: { hasSome: allowedTableGroups } } },
       });
     }
 
@@ -612,7 +617,23 @@ export class OrdersService {
     if (query.orderStatuses?.length) {
       return query.orderStatuses;
     }
-    return query.orderStatus ? [query.orderStatus] : undefined;
+    if (query.orderStatus) {
+      return [query.orderStatus];
+    }
+    if (query.actionStatusCode) {
+      return [query.actionStatusCode];
+    }
+    return undefined;
+  }
+
+  private resolveStateStatusesFilter(query: OrderQueryDto): string[] | undefined {
+    if (query.stateStatuses?.length) {
+      return query.stateStatuses;
+    }
+    if (query.stateStatusCode) {
+      return [query.stateStatusCode];
+    }
+    return undefined;
   }
 
   private buildCreatedAtFilter(dateFrom?: string, dateTo?: string): Prisma.DateTimeFilter | undefined {
@@ -653,9 +674,21 @@ export class OrdersService {
       if (query[key] !== undefined) filtered[key] = query[key] as never;
     };
 
+    const copyStateStatusFilters = () => {
+      if (!allowed.has('stateStatuses') && !allowed.has('orderStatuses')) return;
+      if (query.stateStatuses !== undefined) {
+        filtered.stateStatuses = query.stateStatuses;
+      }
+      if (query.stateStatusCode !== undefined) {
+        filtered.stateStatusCode = query.stateStatusCode;
+      }
+    };
+
     for (const entry of ORDER_FILTER_QUERY_MAP) {
       copyFilter(entry.queryKey, entry.filterKey);
     }
+
+    copyStateStatusFilters();
 
     filtered.page = query.page;
     filtered.pageSize = query.pageSize;

@@ -46,6 +46,7 @@ const ASSEMBLY_STATUSES = [
   { code: 'ASSEMBLY_YANDEX', name: 'Соберите Яндекс', color: '#f59e0b' },
   { code: 'ASSEMBLY_PONY', name: 'Соберите Пони', color: '#8b5cf6' },
   { code: 'ASSEMBLY_DOVAS', name: 'Соберите ДоВас', color: '#0ea5e9' },
+  { code: 'ASSEMBLY_NOT_REQUIRED', name: 'Не требуется', color: '#64748b' },
 ] as const;
 
 const ALL_ORDER_TABLE_GROUPS: OrderTableGroup[] = [

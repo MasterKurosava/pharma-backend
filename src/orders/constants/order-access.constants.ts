@@ -9,6 +9,7 @@ export const ORDER_FILTER_QUERY_MAP: Array<{ queryKey: keyof OrderQueryDto; filt
   { queryKey: 'paymentStatus', filterKey: 'paymentStatus' },
   { queryKey: 'orderStatus', filterKey: 'orderStatus' },
   { queryKey: 'orderStatuses', filterKey: 'orderStatuses' },
+  { queryKey: 'actionStatusCode', filterKey: 'actionStatusCode' },
   { queryKey: 'storagePlaceId', filterKey: 'storagePlaceId' },
   { queryKey: 'dateFrom', filterKey: 'dateFrom' },
   { queryKey: 'dateTo', filterKey: 'dateTo' },

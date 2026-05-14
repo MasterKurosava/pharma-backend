@@ -31,6 +31,8 @@ const ALL_FILTERS: OrderFilterKey[] = [
   'paymentStatus',
   'orderStatus',
   'orderStatuses',
+  'actionStatusCode',
+  'stateStatuses',
   'storagePlaceId',
   'dateFrom',
   'dateTo',
