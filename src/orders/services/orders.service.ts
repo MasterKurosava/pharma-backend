@@ -583,6 +583,10 @@ export class OrdersService {
       where.stateStatusCode = { in: stateStatusesFilter };
     }
 
+    if (query.assemblyStatuses?.length) {
+      where.assemblyStatusCode = { in: query.assemblyStatuses };
+    }
+
     const createdAtFilter = this.buildCreatedAtFilter(query.dateFrom, query.dateTo);
     if (createdAtFilter) {
       where.createdAt = createdAtFilter;
@@ -689,6 +693,14 @@ export class OrdersService {
     }
 
     copyStateStatusFilters();
+
+    const copyAssemblyStatusFilters = () => {
+      if (!allowed.has('assemblyStatuses')) return;
+      if (query.assemblyStatuses !== undefined) {
+        filtered.assemblyStatuses = query.assemblyStatuses;
+      }
+    };
+    copyAssemblyStatusFilters();
 
     filtered.page = query.page;
     filtered.pageSize = query.pageSize;

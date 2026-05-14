@@ -33,6 +33,7 @@ const ALL_FILTERS: OrderFilterKey[] = [
   'orderStatuses',
   'actionStatusCode',
   'stateStatuses',
+  'assemblyStatuses',
   'storagePlaceId',
   'dateFrom',
   'dateTo',

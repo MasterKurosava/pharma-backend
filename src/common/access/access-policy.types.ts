@@ -8,6 +8,7 @@ export type OrderFilterKey =
   | 'orderStatuses'
   | 'actionStatusCode'
   | 'stateStatuses'
+  | 'assemblyStatuses'
   | 'storagePlaceId'
   | 'dateFrom'
   | 'dateTo';
