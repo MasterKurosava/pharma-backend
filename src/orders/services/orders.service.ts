@@ -201,7 +201,7 @@ export class OrdersService {
           activeSubstanceNameSnapshot: product.activeSubstance.name,
           productPrice: pricePerItem.toFixed(2),
           quantity,
-          ...(actionStatus.setAssemblyDateOnSet ? { assemblyDate: now } : {}),
+          ...(stateStatus.setAssemblyDateOnSet ? { assemblyDate: now } : {}),
         },
       });
       await this.applyStatusInventoryAutomation(tx, {
@@ -209,8 +209,8 @@ export class OrdersService {
         currentUserId,
         quantity,
         productId: product.id,
-        previousActionStatus: null,
-        nextActionStatus: actionStatus,
+        previousStatus: null,
+        nextStatus: stateStatus,
       });
 
       return this.loadOrderFullOrThrow(tx, createdOrder.id);
@@ -260,7 +260,7 @@ export class OrdersService {
         sanitizedDto.actionStatusCode ?? currentOrderStatusCodes.actionStatusCode;
       const nextStateStatusCode =
         sanitizedDto.stateStatusCode ?? currentOrderStatusCodes.stateStatusCode;
-      const [nextActionStatus, nextStateStatus] = await Promise.all([
+      const [, nextStateStatus] = await Promise.all([
         this.getStatusConfig(tx, nextActionStatusCode, 'ACTION'),
         this.getStatusConfig(tx, nextStateStatusCode, 'STATE'),
       ]);
@@ -318,12 +318,12 @@ export class OrdersService {
           remainingAmount: totals.remainingAmount,
           prepaymentDate: paymentDates.prepaymentDate,
           paymentDate: paymentDates.paymentDate,
-          ...(nextActionStatus.setAssemblyDateOnSet && !currentOrder.assemblyDate ? { assemblyDate: now } : {}),
+          ...(nextStateStatus.setAssemblyDateOnSet && !currentOrder.assemblyDate ? { assemblyDate: now } : {}),
         },
         include: ORDER_FULL_INCLUDE,
       });
 
-      if ((sanitizedDto.productId !== undefined || sanitizedDto.quantity !== undefined) && currentOrder.actionStatus.reserveOnSet) {
+      if ((sanitizedDto.productId !== undefined || sanitizedDto.quantity !== undefined) && currentOrder.stateStatus.reserveOnSet) {
         if (currentOrder.productId !== nextProduct.id) {
           await this.orderInventoryService.release(tx, {
             productId: currentOrder.productId,
@@ -362,8 +362,8 @@ export class OrdersService {
         currentUserId,
         quantity: nextQuantity,
         productId: nextProduct.id,
-        previousActionStatus: currentOrder.actionStatus,
-        nextActionStatus,
+        previousStatus: currentOrder.stateStatus,
+        nextStatus: nextStateStatus,
       });
       return updated;
     });
@@ -373,7 +373,7 @@ export class OrdersService {
     return this.withOrderTransaction(async (tx) => {
         const order: FullOrder = await this.loadOrderFullOrThrow(tx, id);
 
-        if (order.actionStatus.reserveOnSet) {
+        if (order.stateStatus.reserveOnSet) {
           await this.orderInventoryService.release(tx, {
             productId: order.productId,
             quantity: order.quantity,
@@ -411,11 +411,11 @@ export class OrdersService {
       throw new ForbiddenException(`Недостаточно прав для изменения поля: ${field}`);
     }
 
-    let actionStatus: OrderStatusConfig | null = null;
+    let stateStatus: OrderStatusConfig | null = null;
     if (field === 'actionStatusCode') {
-      actionStatus = await this.getStatusConfig(this.prisma, value, 'ACTION');
+      await this.getStatusConfig(this.prisma, value, 'ACTION');
     } else if (field === 'stateStatusCode') {
-      await this.getStatusConfig(this.prisma, value, 'STATE');
+      stateStatus = await this.getStatusConfig(this.prisma, value, 'STATE');
     }
 
     const orders = await this.prisma.order.findMany({
@@ -440,16 +440,19 @@ export class OrdersService {
                   new Date(),
                 )
               : {}),
+            ...(field === 'stateStatusCode' && stateStatus?.setAssemblyDateOnSet && !order.assemblyDate
+              ? { assemblyDate: new Date() }
+              : {}),
           } as Prisma.OrderUpdateInput,
         });
-        if (field === 'actionStatusCode' && actionStatus) {
+        if (field === 'stateStatusCode' && stateStatus) {
           await this.applyStatusInventoryAutomation(tx, {
             orderId: order.id,
             currentUserId: undefined,
             quantity: order.quantity,
             productId: order.productId,
-            previousActionStatus: order.actionStatus,
-            nextActionStatus: actionStatus,
+            previousStatus: order.stateStatus,
+            nextStatus: stateStatus,
           });
         }
         updatedCount += 1;
@@ -808,12 +811,12 @@ export class OrdersService {
       productId: number;
       quantity: number;
       currentUserId?: number;
-      previousActionStatus: OrderStatusConfig | null;
-      nextActionStatus: OrderStatusConfig;
+      previousStatus: OrderStatusConfig | null;
+      nextStatus: OrderStatusConfig;
     },
   ) {
-    const wasReserve = params.previousActionStatus?.reserveOnSet ?? false;
-    const nowReserve = params.nextActionStatus.reserveOnSet;
+    const wasReserve = params.previousStatus?.reserveOnSet ?? false;
+    const nowReserve = params.nextStatus.reserveOnSet;
     if (!wasReserve && nowReserve) {
       const product = await tx.product.findUniqueOrThrow({ where: { id: params.productId } });
       await this.orderInventoryService.reserve(tx, {
@@ -832,8 +835,8 @@ export class OrdersService {
       });
     }
 
-    const wasWriteOff = params.previousActionStatus?.writeOffOnSet ?? false;
-    const nowWriteOff = params.nextActionStatus.writeOffOnSet;
+    const wasWriteOff = params.previousStatus?.writeOffOnSet ?? false;
+    const nowWriteOff = params.nextStatus.writeOffOnSet;
     if (!wasWriteOff && nowWriteOff) {
       await this.orderInventoryService.writeOff(tx, {
         productId: params.productId,

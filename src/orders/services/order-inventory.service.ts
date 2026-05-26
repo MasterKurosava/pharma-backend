@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, ProductAvailabilityStatus } from '@prisma/client';
 import { STOCK_MOVEMENT_TYPES } from '../constants/stock-movement-types';
 
 type ProductSnapshot = {
@@ -9,12 +9,26 @@ type ProductSnapshot = {
   reservedQuantity: number;
 };
 
+/**
+ * Товары со статусом «На заказ» не учитываются на складе:
+ * для них не выполняются ни резервирование, ни списание, ни снятие резерва.
+ */
+function isInventoryTracked(availabilityStatus: ProductAvailabilityStatus): boolean {
+  return availabilityStatus !== ProductAvailabilityStatus.ON_REQUEST;
+}
+
 @Injectable()
 export class OrderInventoryService {
   private async getProductSnapshot(tx: Prisma.TransactionClient, productId: number) {
     return tx.product.findUnique({
       where: { id: productId },
-      select: { id: true, name: true, stockQuantity: true, reservedQuantity: true },
+      select: {
+        id: true,
+        name: true,
+        stockQuantity: true,
+        reservedQuantity: true,
+        availabilityStatus: true,
+      },
     });
   }
 
@@ -34,6 +48,9 @@ export class OrderInventoryService {
     const latest = await this.getProductSnapshot(tx, params.product.id);
     if (!latest) {
       throw new BadRequestException('Товар не найден');
+    }
+    if (!isInventoryTracked(latest.availabilityStatus)) {
+      return;
     }
     const available = latest.stockQuantity - latest.reservedQuantity;
     if (available < params.quantity) {
@@ -75,9 +92,19 @@ export class OrderInventoryService {
 
     const current = await this.getProductSnapshot(tx, params.productId);
 
-    if (!current || current.reservedQuantity < params.quantity) {
+    if (!current) {
       throw new BadRequestException(
-        `Некорректное уменьшение резерва товара ${params.productName ?? current?.name ?? ''}`.trim(),
+        `Некорректное уменьшение резерва товара ${params.productName ?? ''}`.trim(),
+      );
+    }
+
+    if (!isInventoryTracked(current.availabilityStatus)) {
+      return;
+    }
+
+    if (current.reservedQuantity < params.quantity) {
+      throw new BadRequestException(
+        `Некорректное уменьшение резерва товара ${params.productName ?? current.name}`.trim(),
       );
     }
 
@@ -118,6 +145,9 @@ export class OrderInventoryService {
     const current = await this.getProductSnapshot(tx, params.productId);
     if (!current) {
       throw new BadRequestException('Товар не найден');
+    }
+    if (!isInventoryTracked(current.availabilityStatus)) {
+      return;
     }
     if (current.stockQuantity < params.quantity) {
       throw new BadRequestException(
